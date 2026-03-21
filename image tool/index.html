@@ -606,6 +606,21 @@ function setAiStrip(dotId, msgId, state, msg) {
   if (msgEl) msgEl.textContent = msg;
 }
 
+function updateUpscaleStrip() {
+  const p      = document.getElementById('upscaleProvider').value;
+  const cdKey  = document.getElementById('clipdropKey').value.trim();
+  const repKey = document.getElementById('replicateKey').value.trim();
+  if (p === 'clipdrop' && cdKey.length > 10) {
+    setAiStrip('upscaleDot','upscaleMsg','ready','ClipDrop AI upscaling active ✓');
+  } else if (p === 'replicate' && repKey.startsWith('r8_') && repKey.length > 10) {
+    setAiStrip('upscaleDot','upscaleMsg','ready','Replicate Real-ESRGAN active ✓');
+  } else if (p === 'none') {
+    setAiStrip('upscaleDot','upscaleMsg','loading','Smart canvas upscaling (no API key)');
+  } else {
+    setAiStrip('upscaleDot','upscaleMsg','err','AI model unavailable — using smart multi-step canvas upscaling with sharpening');
+  }
+}
+
 function loadScript(src) {
   return new Promise((res, rej) => {
     if (document.querySelector(`script[src="${src}"]`)) { res(); return; }
@@ -795,6 +810,7 @@ window.onProviderChange = () => {
   const p = document.getElementById('upscaleProvider').value;
   toggle('fieldClipdropKey',  p === 'clipdrop');
   toggle('fieldReplicateKey', p === 'replicate');
+  updateUpscaleStrip();
 };
 
 window.onApiKeyInput = () => {
@@ -803,6 +819,12 @@ window.onApiKeyInput = () => {
   const repKey   = document.getElementById('replicateKey').value.trim();
   const cdHint   = document.getElementById('clipdropHint');
   const repHint  = document.getElementById('replicateHint');
+
+  // Save keys to localStorage
+  if (p === 'clipdrop' && cdKey) localStorage.setItem('cdKey', cdKey);
+  if (p === 'replicate' && repKey) localStorage.setItem('repKey', repKey);
+
+  updateUpscaleStrip();
 
   if (p === 'clipdrop') {
     if (cdKey.length > 10) {
@@ -1224,6 +1246,21 @@ function triggerDownload(url, name) {
 // INIT
 // ═══════════════════════════════════════════════════════════════
 syncUploadZone();
+
+// Restore saved API keys from localStorage
+(function restoreKeys() {
+  const cdKey  = localStorage.getItem('cdKey');
+  const repKey = localStorage.getItem('repKey');
+  if (cdKey)  document.getElementById('clipdropKey').value  = cdKey;
+  if (repKey) document.getElementById('replicateKey').value = repKey;
+  // If replicate key saved, switch to replicate provider
+  if (repKey && !cdKey) {
+    document.getElementById('upscaleProvider').value = 'replicate';
+    window.onProviderChange();
+  }
+  updateUpscaleStrip();
+})();
+
 // Pre-warm upscaler when its tab is clicked
 document.querySelector('[data-tab="upscale"]').addEventListener('click', () => {
   if (!upscaler) initUpscaler();
