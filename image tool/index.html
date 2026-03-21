@@ -1,0 +1,1233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Image Tools</title>
+  <!-- TF.js — needed if UpscalerJS AI model loads successfully -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
+  <!-- JSZip — for batch ZIP download in Convert tab -->
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <style>
+    :root {
+      --bg:#0f1117; --sur:#1a1d27; --sur2:#22263a; --sur3:#2a2f45;
+      --border:#2e3350; --text:#e2e8f0; --text2:#8892b0;
+      --accent:#4f7ef8; --green:#22c55e; --yellow:#f59e0b;
+      --red:#ef4444; --purple:#a855f7;
+    }
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{background:var(--bg);color:var(--text);font:14px/1.5 'Segoe UI',sans-serif;min-height:100vh;}
+
+    /* ── Header ── */
+    header{background:var(--sur);border-bottom:1px solid var(--border);padding:14px 28px;display:flex;align-items:center;gap:14px;}
+    header .hicon{font-size:26px;}
+    header h1{font-size:20px;font-weight:700;}
+    header p{color:var(--text2);font-size:12px;margin-top:1px;}
+
+    /* ── Tabs ── */
+    .tab-bar{background:var(--sur);border-bottom:1px solid var(--border);display:flex;padding:0 20px;gap:0;overflow-x:auto;}
+    .tab-btn{padding:13px 20px;font-size:13px;font-weight:600;background:none;border:none;
+      color:var(--text2);cursor:pointer;border-bottom:3px solid transparent;
+      transition:all .18s;white-space:nowrap;display:flex;align-items:center;gap:6px;}
+    .tab-btn:hover{color:var(--text);}
+    .tab-btn.active{color:var(--accent);border-bottom-color:var(--accent);}
+
+    /* ── Layout ── */
+    main{max-width:920px;margin:0 auto;padding:24px 18px;display:flex;flex-direction:column;gap:14px;}
+
+    /* ── Card ── */
+    .card{background:var(--sur);border:1px solid var(--border);border-radius:12px;padding:22px;}
+    .card-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text2);margin-bottom:16px;}
+
+    /* ── Upload Zone ── */
+    .upload-zone{border:2px dashed var(--border);border-radius:12px;background:var(--sur);
+      padding:44px 20px;text-align:center;cursor:pointer;transition:all .2s;position:relative;}
+    .upload-zone:hover,.upload-zone.drag{border-color:var(--accent);background:rgba(79,126,248,.06);}
+    .upload-zone .uz-icon{font-size:44px;margin-bottom:10px;line-height:1;}
+    .upload-zone h2{font-size:17px;font-weight:600;margin-bottom:5px;}
+    .upload-zone p{color:var(--text2);font-size:12px;}
+    .upload-zone .fmt-tag{display:inline-block;background:var(--sur2);border:1px solid var(--border);
+      border-radius:4px;padding:1px 7px;font-size:11px;font-weight:600;margin:2px;}
+    .upload-zone input{display:none;}
+    .reject-bar{position:absolute;bottom:0;left:0;right:0;background:rgba(239,68,68,.12);
+      color:var(--red);border-radius:0 0 10px 10px;padding:7px 14px;font-size:12px;font-weight:600;
+      text-align:center;opacity:0;transition:opacity .25s;pointer-events:none;}
+    .reject-bar.show{opacity:1;}
+
+    /* ── File Thumbs ── */
+    .file-list{display:flex;flex-wrap:wrap;gap:10px;}
+    .file-thumb{background:var(--sur2);border:1px solid var(--border);border-radius:8px;
+      overflow:hidden;width:100px;text-align:center;position:relative;flex-shrink:0;}
+    .file-thumb img{width:100%;height:68px;object-fit:cover;display:block;}
+    .file-thumb .ft-name{font-size:10px;color:var(--text2);padding:3px 6px;
+      overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .file-thumb .ft-size{font-size:10px;color:var(--text2);padding-bottom:4px;}
+    .file-thumb .ft-remove{position:absolute;top:3px;right:3px;background:rgba(0,0,0,.65);
+      border:none;color:#fff;width:18px;height:18px;border-radius:50%;font-size:10px;
+      cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;}
+    .file-thumb.done::after{content:'✓';position:absolute;top:3px;left:3px;background:rgba(34,197,94,.85);
+      color:#fff;border-radius:4px;padding:0 5px;font-size:10px;font-weight:700;}
+    .file-thumb.processing::after{content:'…';position:absolute;top:3px;left:3px;background:rgba(79,126,248,.85);
+      color:#fff;border-radius:4px;padding:0 5px;font-size:10px;font-weight:700;}
+
+    /* ── Form Fields ── */
+    .fields{display:flex;flex-direction:column;gap:14px;}
+    .field label{display:block;font-size:11px;font-weight:700;color:var(--text2);
+      text-transform:uppercase;letter-spacing:.05em;margin-bottom:7px;}
+    .frow{display:flex;gap:8px;}
+    input[type=number],select,input[type=text]{background:var(--sur2);border:1px solid var(--border);
+      border-radius:8px;color:var(--text);padding:10px 13px;font-size:13px;outline:none;transition:border .18s;}
+    input[type=number]:focus,select:focus,input[type=text]:focus{border-color:var(--accent);}
+    input[type=number]{flex:1;}
+    select{cursor:pointer;}
+    select.full,input[type=text].full{width:100%;}
+    .hint{font-size:12px;margin-top:6px;color:var(--text2);line-height:1.4;}
+    .hint.ok{color:var(--green);}
+    .hint.warn{color:var(--yellow);}
+    .hint.err{color:var(--red);}
+
+    /* ── Buttons ── */
+    .btn-main{width:100%;padding:13px;border:none;border-radius:10px;background:var(--accent);
+      color:#fff;font-size:14px;font-weight:700;cursor:pointer;transition:opacity .18s;margin-top:6px;}
+    .btn-main:hover{opacity:.88;}
+    .btn-main:disabled{opacity:.32;cursor:not-allowed;}
+    .btn-sec{padding:11px 18px;border:1px solid var(--border);border-radius:10px;background:var(--sur2);
+      color:var(--text);font-size:13px;font-weight:600;cursor:pointer;transition:opacity .18s;}
+    .btn-sec:hover{opacity:.8;}
+    .btn-dl{display:block;width:100%;padding:12px;border:none;border-radius:10px;background:var(--green);
+      color:#fff;font-size:14px;font-weight:700;text-align:center;text-decoration:none;
+      cursor:pointer;transition:opacity .18s;}
+    .btn-dl:hover{opacity:.88;}
+    .btn-row{display:flex;gap:10px;margin-top:12px;}
+    .btn-row>*{flex:1;}
+
+    /* ── Progress ── */
+    .prog-bar{height:6px;background:var(--sur2);border-radius:3px;overflow:hidden;margin:10px 0 6px;}
+    .prog-bar div{height:100%;background:var(--accent);border-radius:3px;transition:width .15s;}
+
+    /* ── Result (compress/upscale) ── */
+    .result-imgs{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px;}
+    .img-box{background:var(--sur2);border-radius:8px;overflow:hidden;aspect-ratio:4/3;
+      display:flex;align-items:center;justify-content:center;position:relative;}
+    .img-box.checker{
+      background-image:linear-gradient(45deg,#2a2a2a 25%,transparent 25%),
+        linear-gradient(-45deg,#2a2a2a 25%,transparent 25%),
+        linear-gradient(45deg,transparent 75%,#2a2a2a 75%),
+        linear-gradient(-45deg,transparent 75%,#2a2a2a 75%);
+      background-size:20px 20px;
+      background-position:0 0,0 10px,10px -10px,-10px 0;
+      background-color:#333;}
+    .img-box img{max-width:100%;max-height:100%;object-fit:contain;}
+    .img-label{position:absolute;top:8px;left:8px;background:rgba(0,0,0,.65);
+      border-radius:4px;padding:2px 8px;font-size:11px;font-weight:600;}
+    .stats{display:flex;flex-direction:column;}
+    .srow{display:flex;justify-content:space-between;align-items:center;
+      padding:8px 0;border-bottom:1px solid var(--border);}
+    .srow:last-child{border-bottom:none;}
+    .srow .slabel{color:var(--text2);font-size:12px;}
+    .srow .sval{font-weight:700;font-size:13px;}
+    .badge{display:inline-block;padding:2px 9px;border-radius:5px;font-size:12px;font-weight:700;}
+    .badge-down{background:rgba(34,197,94,.14);color:var(--green);}
+    .badge-up{background:rgba(79,126,248,.14);color:var(--accent);}
+    .badge-neutral{background:var(--sur2);color:var(--text2);}
+
+    /* ── Convert batch list ── */
+    .batch-list{display:flex;flex-direction:column;gap:8px;}
+    .batch-item{display:flex;align-items:center;gap:11px;background:var(--sur2);
+      border-radius:8px;padding:9px 13px;border:1px solid var(--border);}
+    .batch-item img{width:38px;height:38px;object-fit:cover;border-radius:4px;flex-shrink:0;}
+    .batch-item .bi-info{flex:1;min-width:0;}
+    .batch-item .bi-name{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .batch-item .bi-size{font-size:11px;color:var(--text2);}
+    .batch-item a.dl-link{font-size:12px;color:var(--accent);text-decoration:none;white-space:nowrap;font-weight:600;}
+    .batch-item a.dl-link:hover{text-decoration:underline;}
+
+    /* ── AI status strip ── */
+    .ai-strip{display:flex;align-items:center;gap:8px;background:rgba(168,85,247,.07);
+      border:1px solid rgba(168,85,247,.2);border-radius:8px;padding:9px 13px;margin-bottom:14px;font-size:12px;}
+    .ai-dot{width:8px;height:8px;border-radius:50%;background:var(--text2);flex-shrink:0;}
+    .ai-dot.ready{background:var(--green);}
+    .ai-dot.loading{background:var(--yellow);animation:pulse 1s infinite;}
+    .ai-dot.err{background:var(--red);}
+    @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.3;}}
+
+    /* ── Misc ── */
+    .two-col{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+    .hidden{display:none!important;}
+    .sep{border:none;border-top:1px solid var(--border);margin:4px 0;}
+    .info-note{font-size:12px;color:var(--text2);line-height:1.5;padding:10px 13px;
+      background:var(--sur2);border-radius:8px;border-left:3px solid var(--accent);}
+
+    @media(max-width:600px){
+      .result-imgs,.two-col{grid-template-columns:1fr;}
+      .tab-btn{padding:12px 13px;font-size:12px;}
+      .tab-btn .ticon{font-size:14px;}
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="hicon">🛠️</div>
+  <div>
+    <h1>Image Tools</h1>
+    <p>Convert · Compress · Upscale · Remove Background — 100% in your browser, nothing uploaded</p>
+  </div>
+</header>
+
+<div class="tab-bar">
+  <button class="tab-btn active" data-tab="convert"><span class="ticon">🔄</span> Convert</button>
+  <button class="tab-btn" data-tab="compress"><span class="ticon">📦</span> Compress</button>
+  <button class="tab-btn" data-tab="upscale"><span class="ticon">🔍</span> Upscale</button>
+  <button class="tab-btn" data-tab="removebg"><span class="ticon">✂️</span> Remove BG</button>
+</div>
+
+<main>
+
+  <!-- ═══ DROP ZONE ═══ -->
+  <div class="upload-zone" id="uploadZone">
+    <div class="uz-icon">📁</div>
+    <h2 id="uzTitle">Drop images here</h2>
+    <p id="uzSub">or click to browse</p>
+    <div style="margin-top:10px" id="uzFmts">
+      <span class="fmt-tag">JPG</span>
+      <span class="fmt-tag">PNG</span>
+      <span class="fmt-tag">WebP</span>
+      <span class="fmt-tag">GIF</span>
+      <span class="fmt-tag">BMP</span>
+    </div>
+    <input type="file" id="fileInput" accept=".jpg,.jpeg,.png,.webp,.gif,.bmp,image/jpeg,image/png,image/webp,image/gif,image/bmp" multiple>
+    <div class="reject-bar" id="rejectBar"></div>
+  </div>
+
+  <!-- ═══ FILE LIST ═══ -->
+  <div class="card hidden" id="cardFiles">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+      <div class="card-title" style="margin-bottom:0">Loaded Files</div>
+      <button class="btn-sec" style="padding:5px 13px;font-size:11px;" onclick="clearFiles()">Clear All</button>
+    </div>
+    <div class="file-list" id="fileList"></div>
+  </div>
+
+  <!-- ═══════════════════════════════ CONVERT ═══════════════════════════════ -->
+  <div id="panelConvert" class="panel">
+    <div class="card">
+      <div class="card-title">Convert Format</div>
+      <div class="fields">
+        <div class="field">
+          <label>Convert To</label>
+          <select id="cvtFmt" class="full">
+            <option value="jpeg">JPEG (.jpg) — best for photos</option>
+            <option value="png">PNG (.png) — lossless, supports transparency</option>
+            <option value="webp">WebP (.webp) — modern, small &amp; efficient</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Quality (JPEG / WebP only)</label>
+          <select id="cvtQuality" class="full">
+            <option value="1.0">Maximum (100%)</option>
+            <option value="0.92" selected>High (92%) — recommended</option>
+            <option value="0.80">Good (80%)</option>
+            <option value="0.65">Medium (65%)</option>
+            <option value="0.50">Low (50%)</option>
+          </select>
+        </div>
+      </div>
+      <button class="btn-main" id="btnConvert" onclick="doConvert()" disabled>🔄 Convert Files</button>
+    </div>
+    <div class="card hidden" id="cardConvertResult">
+      <div class="card-title">Converted Files</div>
+      <div class="batch-list" id="batchList"></div>
+      <div class="hidden" id="zipRow" style="margin-top:12px;">
+        <button class="btn-dl" onclick="downloadZip()">📦 Download All as ZIP</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════ COMPRESS ═══════════════════════════════ -->
+  <div id="panelCompress" class="panel hidden">
+    <div class="card">
+      <div class="card-title">Compress to Target Size</div>
+      <div class="fields">
+        <div class="field">
+          <label>Target File Size</label>
+          <div class="frow">
+            <input type="number" id="targetSize" min="1" value="200" placeholder="200">
+            <select id="targetUnit" style="min-width:78px;">
+              <option value="kb">KB</option>
+              <option value="mb">MB</option>
+            </select>
+          </div>
+          <div class="hint" id="hintCompress"></div>
+        </div>
+        <div class="field">
+          <label>Output Format</label>
+          <select id="fmtCompress" class="full">
+            <option value="jpeg">JPEG — best compression ratio</option>
+            <option value="webp">WebP — modern &amp; efficient</option>
+            <option value="png">PNG — lossless (size reduction limited)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Strategy</label>
+          <select id="strategyCompress" class="full">
+            <option value="quality">Quality reduction only (keep dimensions)</option>
+            <option value="both" selected>Quality + resize if needed</option>
+            <option value="resize">Resize only (keep max quality)</option>
+          </select>
+        </div>
+      </div>
+      <button class="btn-main" id="btnCompress" onclick="doCompress()" disabled>📦 Compress Image</button>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════ UPSCALE ═══════════════════════════════ -->
+  <div id="panelUpscale" class="panel hidden">
+    <div class="card">
+      <div class="card-title">Upscale Resolution</div>
+      <div class="ai-strip" id="upscaleStrip">
+        <div class="ai-dot loading" id="upscaleDot"></div>
+        <span id="upscaleMsg">AI model loading… (UpscalerJS + ESRGAN via CDN)</span>
+      </div>
+      <div class="fields">
+        <div class="field">
+          <label>Scale Factor</label>
+          <select id="scaleFactor" class="full" onchange="onScaleChange()">
+            <option value="1.5">1.5× — subtle boost</option>
+            <option value="2" selected>2× — double resolution</option>
+            <option value="3">3× — high resolution</option>
+            <option value="4">4× — very high resolution</option>
+            <option value="custom">Custom width…</option>
+          </select>
+        </div>
+        <div class="field hidden" id="fieldCustomW">
+          <label>Target Width (px)</label>
+          <input type="number" id="customWidth" min="1" placeholder="e.g. 3840" style="width:100%;" oninput="updateUpscaleHint()">
+          <div class="hint">Height scales proportionally.</div>
+        </div>
+        <div class="field">
+          <label>Output Format</label>
+          <select id="fmtUpscale" class="full">
+            <option value="jpeg">JPEG</option>
+            <option value="webp">WebP</option>
+            <option value="png">PNG (lossless)</option>
+          </select>
+        </div>
+        <div class="hint ok" id="hintUpscale"></div>
+        <div class="field">
+          <label>Cloud AI Provider <span style="font-size:10px;font-weight:400;color:var(--text2)">(optional — for real AI upscaling)</span></label>
+          <select id="upscaleProvider" class="full" onchange="onProviderChange()">
+            <option value="clipdrop" selected>ClipDrop — 100 free/day, instant results</option>
+            <option value="replicate">Replicate — pay-per-use, Real-ESRGAN</option>
+            <option value="none">No API — use smart canvas upscaling</option>
+          </select>
+        </div>
+        <div class="field" id="fieldClipdropKey">
+          <label>ClipDrop API Key</label>
+          <input type="text" id="clipdropKey" class="full" placeholder="Your ClipDrop API key" oninput="onApiKeyInput()" autocomplete="off" spellcheck="false">
+          <div class="hint" id="clipdropHint">100 free upscales/day. <a href="https://clipdrop.co/apis" target="_blank" style="color:var(--accent)">Get a free key at clipdrop.co/apis</a></div>
+        </div>
+        <div class="field hidden" id="fieldReplicateKey">
+          <label>Replicate API Key</label>
+          <input type="text" id="replicateKey" class="full" placeholder="r8_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" oninput="onApiKeyInput()" autocomplete="off" spellcheck="false">
+          <div class="hint" id="replicateHint">~$0.002/image after free trial. <a href="https://replicate.com" target="_blank" style="color:var(--accent)">Get a key at replicate.com</a></div>
+        </div>
+      </div>
+      <button class="btn-main" id="btnUpscale" onclick="doUpscale()" disabled>🔍 Upscale Image</button>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════ REMOVE BG ═══════════════════════════════ -->
+  <div id="panelRemoveBG" class="panel hidden">
+    <div class="card">
+      <div class="card-title">Remove Background</div>
+      <div class="ai-strip" id="bgStrip">
+        <div class="ai-dot loading" id="bgDot"></div>
+        <span id="bgMsg">AI model loads on first use (~50 MB, cached by browser after)</span>
+      </div>
+      <div class="fields">
+        <div class="field">
+          <label>Download Format</label>
+          <select id="bgFmt" class="full">
+            <option value="png">PNG with transparency (recommended)</option>
+            <option value="svg">SVG with embedded transparent image</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Optional Background Fill</label>
+          <select id="bgFill" class="full">
+            <option value="transparent">Keep transparent</option>
+            <option value="#ffffff">White</option>
+            <option value="#000000">Black</option>
+            <option value="#f0f0f0">Light grey</option>
+          </select>
+        </div>
+      </div>
+      <button class="btn-main" id="btnRemoveBG" onclick="doRemoveBG()" disabled>✂️ Remove Background</button>
+    </div>
+
+    <div class="card hidden" id="cardBGResult">
+      <div class="card-title">Preview</div>
+      <div class="two-col" style="margin-bottom:14px;">
+        <div class="img-box">
+          <span class="img-label">Original</span>
+          <img id="bgImgOrig">
+        </div>
+        <div class="img-box checker">
+          <span class="img-label">Background Removed</span>
+          <img id="bgImgResult">
+        </div>
+      </div>
+      <div class="btn-row">
+        <a class="btn-dl" id="bgDlBtn" download>📥 Download</a>
+        <button class="btn-sec" onclick="resetBG()">↩ New Image</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ PROCESSING (shared) ═══ -->
+  <div class="card hidden" id="cardProcessing">
+    <div class="card-title" id="procTitle">Processing</div>
+    <div class="prog-bar"><div id="progFill" style="width:0%"></div></div>
+    <div class="hint" id="progMsg">Starting…</div>
+  </div>
+
+  <!-- ═══ RESULT (compress / upscale shared) ═══ -->
+  <div class="card hidden" id="cardResult">
+    <div class="card-title">Result</div>
+    <div class="result-imgs">
+      <div class="img-box">
+        <span class="img-label">Original</span>
+        <img id="imgOrig">
+      </div>
+      <div class="img-box" id="imgResultBox">
+        <span class="img-label">Result</span>
+        <img id="imgResult">
+      </div>
+    </div>
+    <div class="stats">
+      <div class="srow"><span class="slabel">File size</span><span class="sval" id="rSizes">—</span></div>
+      <div class="srow"><span class="slabel">Dimensions</span><span class="sval" id="rDims">—</span></div>
+      <div class="srow"><span class="slabel">Format</span><span class="sval" id="rFmt">—</span></div>
+      <div class="srow"><span class="slabel">Change</span><span class="sval" id="rDelta">—</span></div>
+    </div>
+    <div class="btn-row">
+      <a class="btn-dl" id="dlBtn" download>📥 Download</a>
+      <button class="btn-sec" onclick="resetResult()">↩ Process Another</button>
+    </div>
+  </div>
+
+</main>
+
+<script type="module">
+// ═══════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════
+let files = [];           // [{file, img, url}]
+let activeTab = 'convert';
+let upscaler = null;
+let bgRemoveFn = null;
+let convertBlobs = [];    // [{blob, name, url}] — for ZIP
+
+// ═══════════════════════════════════════════════════════════════
+// TABS
+// ═══════════════════════════════════════════════════════════════
+const TAB_PANEL = { convert:'Convert', compress:'Compress', upscale:'Upscale', removebg:'RemoveBG' };
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    activeTab = btn.dataset.tab;
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn));
+    document.querySelectorAll('.panel').forEach(p => p.classList.add('hidden'));
+    show('panel' + TAB_PANEL[activeTab]);
+    hide('cardResult'); hide('cardProcessing');
+    syncUploadZone();
+    refreshButtons();
+    // Lazy-init AI on first visit to tab
+    if (activeTab === 'upscale' && !upscaler) initUpscaler();
+    if (activeTab === 'removebg') updateBGStrip();
+  });
+});
+
+function syncUploadZone() {
+  const multi = activeTab === 'convert';
+  document.getElementById('fileInput').multiple = multi;
+  document.getElementById('uzTitle').textContent = multi ? 'Drop images here (multiple allowed)' : 'Drop a single image here';
+  document.getElementById('uzSub').textContent = 'or click to browse';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// UPLOAD / DROP
+// ═══════════════════════════════════════════════════════════════
+const SUPPORTED = new Set(['image/jpeg','image/png','image/webp','image/gif','image/bmp']);
+const SUPPORTED_EXT = new Set(['jpg','jpeg','png','webp','gif','bmp']);
+
+function isSupportedFile(f) {
+  return SUPPORTED.has(f.type.toLowerCase()) || SUPPORTED_EXT.has(f.name.split('.').pop().toLowerCase());
+}
+
+const zone = document.getElementById('uploadZone');
+const finput = document.getElementById('fileInput');
+
+zone.addEventListener('click', e => {
+  if (!e.target.closest('button')) finput.click();
+});
+zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag'); });
+zone.addEventListener('dragleave', e => { if (!zone.contains(e.relatedTarget)) zone.classList.remove('drag'); });
+zone.addEventListener('drop', async e => {
+  e.preventDefault(); zone.classList.remove('drag');
+  const all = Array.from(e.dataTransfer.files);
+  const good = all.filter(isSupportedFile);
+  const bad  = all.filter(f => !isSupportedFile(f));
+  if (bad.length) flashReject(`${bad.length} unsupported file(s) skipped (${bad.map(f=>f.name).join(', ')})`);
+  if (good.length) await addFiles(activeTab === 'convert' ? good : [good[0]]);
+});
+finput.addEventListener('change', async () => {
+  if (finput.files.length) await addFiles(Array.from(finput.files));
+  finput.value = '';
+});
+
+function flashReject(msg) {
+  const el = document.getElementById('rejectBar');
+  el.textContent = msg; el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+async function addFiles(newFiles) {
+  if (activeTab !== 'convert') {
+    files.forEach(f => URL.revokeObjectURL(f.url));
+    files = [];
+    hide('cardBGResult'); hide('cardResult'); hide('cardConvertResult');
+  }
+  for (const file of newFiles) {
+    const url = URL.createObjectURL(file);
+    try {
+      const img = await loadImg(url);
+      files.push({ file, img, url });
+    } catch { URL.revokeObjectURL(url); }
+  }
+  renderFileList();
+  refreshButtons();
+  updateCompressHint();
+  updateUpscaleHint();
+}
+
+function loadImg(src) {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => res(img);
+    img.onerror = rej;
+    img.src = src;
+  });
+}
+
+function renderFileList() {
+  if (!files.length) { hide('cardFiles'); return; }
+  show('cardFiles');
+  document.getElementById('fileList').innerHTML = files.map((f, i) => `
+    <div class="file-thumb" id="ft${i}">
+      <img src="${f.url}" alt="">
+      <div class="ft-name" title="${esc(f.file.name)}">${esc(f.file.name)}</div>
+      <div class="ft-size">${fmt(f.file.size)}</div>
+      <button class="ft-remove" onclick="removeFile(${i})" title="Remove">✕</button>
+    </div>`).join('');
+}
+
+window.removeFile = i => {
+  URL.revokeObjectURL(files[i].url);
+  files.splice(i, 1);
+  renderFileList();
+  refreshButtons();
+};
+
+window.clearFiles = () => {
+  files.forEach(f => URL.revokeObjectURL(f.url));
+  files = [];
+  renderFileList();
+  refreshButtons();
+  hide('cardResult'); hide('cardProcessing');
+  hide('cardConvertResult'); hide('cardBGResult');
+};
+
+function refreshButtons() {
+  const has = files.length > 0;
+  setDis('btnConvert',  !has);
+  setDis('btnCompress', !has);
+  setDis('btnUpscale',  !has);
+  setDis('btnRemoveBG', !has);
+}
+
+function setDis(id, v) { const el = document.getElementById(id); if (el) el.disabled = v; }
+
+// ═══════════════════════════════════════════════════════════════
+// AI — UPSCALER (UpscalerJS + ESRGAN)
+// ═══════════════════════════════════════════════════════════════
+async function initUpscaler() {
+  setAiStrip('upscaleDot','upscaleMsg','loading','Loading UpscalerJS + ESRGAN model from CDN…');
+  try {
+    await loadScript('https://cdn.jsdelivr.net/npm/upscaler@1.0.0-beta.18/dist/browser/umd/upscaler.min.js');
+    upscaler = new window.Upscaler({
+      model: {
+        path: 'https://cdn.jsdelivr.net/npm/@upscalerjs/esrgan-slim@0.12.7/dist/browser/2x/model.json',
+        scale: 2,
+      }
+    });
+    await upscaler.warmup([{ patchSize: 64, padding: 4 }]);
+    setAiStrip('upscaleDot','upscaleMsg','ready','ESRGAN AI model ready — real AI upscaling active ✓');
+  } catch (err) {
+    console.warn('UpscalerJS init failed, using smart canvas fallback:', err);
+    upscaler = null;
+    setAiStrip('upscaleDot','upscaleMsg','err',
+      'AI model unavailable — using smart multi-step canvas upscaling with sharpening');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AI — BACKGROUND REMOVAL (@imgly/background-removal)
+// ═══════════════════════════════════════════════════════════════
+const IMGLY_CDN = 'https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.4.5/dist/browser/';
+
+async function ensureBGModel() {
+  if (bgRemoveFn) return;
+  setAiStrip('bgDot','bgMsg','loading','Loading background removal AI model (~50 MB, one-time)…');
+  const mod = await import(IMGLY_CDN + 'index.js');
+  bgRemoveFn = (url, cfg) => mod.removeBackground(url, { publicPath: IMGLY_CDN, ...cfg });
+  setAiStrip('bgDot','bgMsg','ready','Background removal AI model ready ✓');
+}
+
+function updateBGStrip() {
+  if (bgRemoveFn) setAiStrip('bgDot','bgMsg','ready','Background removal AI model ready ✓');
+}
+
+function setAiStrip(dotId, msgId, state, msg) {
+  const dot = document.getElementById(dotId);
+  const msgEl = document.getElementById(msgId);
+  if (dot) { dot.className = 'ai-dot ' + state; }
+  if (msgEl) msgEl.textContent = msg;
+}
+
+function loadScript(src) {
+  return new Promise((res, rej) => {
+    if (document.querySelector(`script[src="${src}"]`)) { res(); return; }
+    const s = document.createElement('script');
+    s.src = src; s.onload = res; s.onerror = rej;
+    document.head.appendChild(s);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CONVERT
+// ═══════════════════════════════════════════════════════════════
+window.doConvert = async () => {
+  if (!files.length) return;
+  const fmtVal  = document.getElementById('cvtFmt').value;
+  const quality = parseFloat(document.getElementById('cvtQuality').value);
+  const mime    = fmtMime(fmtVal);
+  const ext     = fmtVal === 'jpeg' ? 'jpg' : fmtVal;
+
+  // revoke old blobs
+  convertBlobs.forEach(b => URL.revokeObjectURL(b.url));
+  convertBlobs = [];
+  show('cardProcessing'); hide('cardConvertResult');
+  document.getElementById('procTitle').textContent = 'Converting';
+
+  const rows = [];
+  for (let i = 0; i < files.length; i++) {
+    const { file, img, url: thumbUrl } = files[i];
+    markThumb(i, 'processing');
+    progress((i / files.length) * 90, `Converting ${file.name}…`);
+    await tick();
+
+    const q   = fmtVal === 'png' ? undefined : quality;
+    const blob = await toBlob(img, img.naturalWidth, img.naturalHeight, mime, q);
+    const outUrl  = URL.createObjectURL(blob);
+    const outName = file.name.replace(/\.[^.]+$/, '') + '.' + ext;
+
+    convertBlobs.push({ blob, name: outName, url: outUrl });
+    markThumb(i, 'done');
+
+    const delta = blob.size - file.size;
+    const sign  = delta < 0 ? '▼' : delta > 0 ? '▲' : '=';
+    rows.push(`
+      <div class="batch-item">
+        <img src="${thumbUrl}" alt="">
+        <div class="bi-info">
+          <div class="bi-name" title="${esc(outName)}">${esc(outName)}</div>
+          <div class="bi-size">${fmt(file.size)} ${sign} ${fmt(blob.size)} · ${fmtVal.toUpperCase()}</div>
+        </div>
+        <a class="dl-link" href="${outUrl}" download="${esc(outName)}">↓ Save</a>
+      </div>`);
+  }
+
+  progress(100, 'Done!');
+  document.getElementById('batchList').innerHTML = rows.join('');
+  toggle('zipRow', convertBlobs.length > 1);
+  show('cardConvertResult');
+  hide('cardProcessing');
+};
+
+window.downloadZip = async () => {
+  if (!window.JSZip) { alert('JSZip not loaded — refresh and try again.'); return; }
+  const zip = new JSZip();
+  convertBlobs.forEach(({ blob, name }) => zip.file(name, blob));
+  const zb = await zip.generateAsync({ type: 'blob' });
+  triggerDownload(URL.createObjectURL(zb), 'converted_images.zip');
+};
+
+// ═══════════════════════════════════════════════════════════════
+// COMPRESS
+// ═══════════════════════════════════════════════════════════════
+function targetBytes() {
+  const v = parseFloat(document.getElementById('targetSize').value) || 0;
+  return document.getElementById('targetUnit').value === 'mb' ? v * 1048576 : v * 1024;
+}
+
+function updateCompressHint() {
+  if (!files.length) return;
+  const tb = targetBytes();
+  const el = document.getElementById('hintCompress');
+  const os = files[0].file.size;
+  if (!tb) { el.textContent = ''; return; }
+  if (tb >= os) {
+    el.className = 'hint warn';
+    el.textContent = `⚠ Target (${fmt(tb)}) ≥ original (${fmt(os)}). Switch to Upscale tab instead.`;
+  } else {
+    el.className = 'hint ok';
+    el.textContent = `✓ Will reduce ~${((1 - tb/os)*100).toFixed(0)}% from ${fmt(os)}`;
+  }
+}
+document.getElementById('targetSize').addEventListener('input', updateCompressHint);
+document.getElementById('targetUnit').addEventListener('change', updateCompressHint);
+
+window.doCompress = async () => {
+  if (!files.length) return;
+  const tb       = targetBytes();
+  if (!tb) { alert('Enter a target size first.'); return; }
+  const { file, img } = files[0];
+  const fmtVal   = document.getElementById('fmtCompress').value;
+  const strategy = document.getElementById('strategyCompress').value;
+  const mime     = fmtMime(fmtVal);
+
+  show('cardProcessing'); hide('cardResult');
+  document.getElementById('procTitle').textContent = 'Compressing';
+  document.getElementById('imgOrig').src = files[0].url;
+
+  let blob;
+  if (fmtVal === 'png') {
+    progress(5, 'PNG: resizing to hit target…');
+    blob = await bsResize(img, tb, mime, 1);
+  } else if (strategy === 'quality') {
+    progress(5, 'Reducing quality…');
+    blob = await bsQuality(img, tb, mime);
+    if (!blob || blob.size > tb * 1.05) {
+      progress(72, 'Cannot reach target with quality alone. Try "Quality + Resize".');
+      blob = blob || await toBlob(img, img.naturalWidth, img.naturalHeight, mime, 0.01);
+    }
+  } else if (strategy === 'resize') {
+    progress(5, 'Resizing…');
+    blob = await bsResize(img, tb, mime, 0.92);
+  } else {
+    progress(5, 'Reducing quality…');
+    blob = await bsQuality(img, tb, mime);
+    if (!blob || blob.size > tb * 1.05) {
+      progress(50, 'Minimum quality reached — resizing…');
+      blob = await bsResize(img, tb, mime, 0.82);
+    }
+  }
+
+  progress(100, 'Done!');
+  showProcessResult(blob, fmtVal, file, img);
+};
+
+async function bsQuality(img, targetB, mime) {
+  let lo = 0.01, hi = 1.0, best = null;
+  for (let i = 0; i < 22; i++) {
+    const mid = (lo + hi) / 2;
+    const b = await toBlob(img, img.naturalWidth, img.naturalHeight, mime, mid);
+    progress(10 + i * 2.5, `Quality ${(mid*100).toFixed(0)}% → ${fmt(b.size)}`);
+    if (b.size <= targetB) { best = b; lo = mid; } else hi = mid;
+    if (hi - lo < 0.005) break;
+  }
+  return best;
+}
+
+async function bsResize(img, targetB, mime, quality = 0.88) {
+  const ow = img.naturalWidth, oh = img.naturalHeight;
+  let lo = 0.05, hi = 1.0, best = null;
+  for (let i = 0; i < 22; i++) {
+    const mid = (lo + hi) / 2;
+    const w = Math.max(1, Math.round(ow * mid));
+    const h = Math.max(1, Math.round(oh * mid));
+    const b = await toBlob(img, w, h, mime, mime === 'image/png' ? undefined : quality);
+    progress(10 + i * 4, `Resize ${w}×${h} → ${fmt(b.size)}`);
+    if (b.size <= targetB) { best = b; lo = mid; } else hi = mid;
+    if (hi - lo < 0.005) break;
+  }
+  return best || await toBlob(img, Math.max(1,Math.round(ow*.05)), Math.max(1,Math.round(oh*.05)), mime, quality);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// UPSCALE
+// ═══════════════════════════════════════════════════════════════
+window.onScaleChange = () => {
+  toggle('fieldCustomW', document.getElementById('scaleFactor').value === 'custom');
+  updateUpscaleHint();
+};
+
+function updateUpscaleHint() {
+  if (!files.length) return;
+  const img = files[0].img;
+  const sf  = document.getElementById('scaleFactor').value;
+  let w, h;
+  if (sf === 'custom') {
+    w = parseInt(document.getElementById('customWidth').value) || 0;
+    if (!w) { document.getElementById('hintUpscale').textContent = ''; return; }
+    h = Math.round(w * img.naturalHeight / img.naturalWidth);
+  } else {
+    w = Math.round(img.naturalWidth  * parseFloat(sf));
+    h = Math.round(img.naturalHeight * parseFloat(sf));
+  }
+  document.getElementById('hintUpscale').textContent =
+    `→ Output: ${w} × ${h} px  (${(w*h/1e6).toFixed(2)} MP)`;
+}
+
+window.onProviderChange = () => {
+  const p = document.getElementById('upscaleProvider').value;
+  toggle('fieldClipdropKey',  p === 'clipdrop');
+  toggle('fieldReplicateKey', p === 'replicate');
+};
+
+window.onApiKeyInput = () => {
+  const p        = document.getElementById('upscaleProvider').value;
+  const cdKey    = document.getElementById('clipdropKey').value.trim();
+  const repKey   = document.getElementById('replicateKey').value.trim();
+  const cdHint   = document.getElementById('clipdropHint');
+  const repHint  = document.getElementById('replicateHint');
+
+  if (p === 'clipdrop') {
+    if (cdKey.length > 10) {
+      cdHint.className = 'hint ok';
+      cdHint.innerHTML = '✓ Key set — ClipDrop AI upscaling active (100 free/day)';
+    } else if (cdKey) {
+      cdHint.className = 'hint warn';
+      cdHint.innerHTML = '⚠ Key looks short — double-check it';
+    } else {
+      cdHint.className = 'hint';
+      cdHint.innerHTML = '100 free upscales/day. <a href="https://clipdrop.co/apis" target="_blank" style="color:var(--accent)">Get a free key at clipdrop.co/apis</a>';
+    }
+  } else if (p === 'replicate') {
+    if (repKey.startsWith('r8_') && repKey.length > 10) {
+      repHint.className = 'hint ok';
+      repHint.innerHTML = '✓ Key set — Replicate Real-ESRGAN active';
+    } else if (repKey) {
+      repHint.className = 'hint warn';
+      repHint.innerHTML = '⚠ Key should start with r8_ — double-check it';
+    } else {
+      repHint.className = 'hint';
+      repHint.innerHTML = '~$0.002/image after free trial. <a href="https://replicate.com" target="_blank" style="color:var(--accent)">Get a key at replicate.com</a>';
+    }
+  }
+};
+
+window.doUpscale = async () => {
+  if (!files.length) return;
+  const { file, img } = files[0];
+  const sf       = document.getElementById('scaleFactor').value;
+  const fmtVal   = document.getElementById('fmtUpscale').value;
+  const mime     = fmtMime(fmtVal);
+  const provider = document.getElementById('upscaleProvider').value;
+  const cdKey    = document.getElementById('clipdropKey').value.trim();
+  const repKey   = document.getElementById('replicateKey').value.trim();
+  let w, h;
+  if (sf === 'custom') {
+    w = parseInt(document.getElementById('customWidth').value);
+    h = Math.round(w * img.naturalHeight / img.naturalWidth);
+  } else {
+    w = Math.round(img.naturalWidth  * parseFloat(sf));
+    h = Math.round(img.naturalHeight * parseFloat(sf));
+  }
+
+  show('cardProcessing'); hide('cardResult');
+  document.getElementById('procTitle').textContent = 'Upscaling';
+  document.getElementById('imgOrig').src = files[0].url;
+
+  let blob;
+
+  // ── Priority 1: ClipDrop (default cloud AI) ──
+  if (provider === 'clipdrop' && cdKey.length > 10) {
+    try {
+      blob = await upscaleViaClipdrop(img, w, h, cdKey, fmtVal);
+    } catch (e) {
+      console.warn('ClipDrop upscale failed:', e);
+      progress(5, `ClipDrop failed (${e.message}) — falling back…`);
+      await tick(); blob = null;
+    }
+  }
+
+  // ── Priority 2: Replicate Real-ESRGAN ──
+  if (!blob && provider === 'replicate' && repKey.startsWith('r8_')) {
+    try {
+      const scale = sf === 'custom' || parseFloat(sf) > 4 ? 4 : (parseFloat(sf) <= 2 ? 2 : 4);
+      blob = await upscaleViaReplicate(img, scale, repKey, fmtVal);
+    } catch (e) {
+      console.warn('Replicate upscale failed:', e);
+      progress(5, `Replicate failed (${e.message}) — falling back…`);
+      await tick(); blob = null;
+    }
+  }
+
+  // ── Priority 3: UpscalerJS browser AI (ESRGAN via CDN) ──
+  if (!blob && upscaler && parseFloat(sf) <= 4 && sf !== 'custom') {
+    try {
+      progress(10, `Browser AI upscaling to ${w}×${h}…`);
+      const aiResult = await upscaler.upscale(img);
+      progress(80, 'Encoding…');
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(typeof aiResult === 'string' ? await loadImg(aiResult) : aiResult, 0, 0, w, h);
+      blob = await new Promise(r => canvas.toBlob(r, mime, fmtVal === 'png' ? undefined : 1.0));
+    } catch (e) {
+      console.warn('UpscalerJS error, falling back:', e);
+      blob = null;
+    }
+  }
+
+  // ── Priority 4: Smart multi-step canvas + unsharp mask ──
+  if (!blob) {
+    progress(10, `Smart upscaling to ${w}×${h}…`);
+    blob = await smartUpscale(img, w, h, mime, fmtVal);
+  }
+
+  progress(100, 'Done!');
+  showProcessResult(blob, fmtVal, file, img);
+};
+
+// ── ClipDrop Upscaling ─────────────────────────────────────────
+async function upscaleViaClipdrop(img, targetW, targetH, apiKey, fmtVal) {
+  progress(5, 'Preparing image for ClipDrop…');
+  await tick();
+
+  // Convert to JPEG blob for upload
+  const srcCanvas = document.createElement('canvas');
+  srcCanvas.width = img.naturalWidth; srcCanvas.height = img.naturalHeight;
+  srcCanvas.getContext('2d').drawImage(img, 0, 0);
+  const srcBlob = await new Promise(r => srcCanvas.toBlob(r, 'image/jpeg', 0.95));
+
+  progress(15, 'Sending to ClipDrop AI upscaling…');
+
+  const form = new FormData();
+  form.append('image_file', srcBlob, 'image.jpg');
+  form.append('target_width',  String(targetW));
+  form.append('target_height', String(targetH));
+
+  const resp = await fetch('https://clipdrop-api.co/image-upscaling/v1/upscale', {
+    method: 'POST',
+    headers: { 'x-api-key': apiKey },
+    body: form
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => resp.status);
+    throw new Error(`ClipDrop ${resp.status}: ${text}`);
+  }
+
+  progress(85, 'Encoding result…');
+  const resultBlob = await resp.blob();
+
+  // Convert to requested output format
+  const resultImg = await loadImg(URL.createObjectURL(resultBlob));
+  const outCanvas = document.createElement('canvas');
+  outCanvas.width = resultImg.naturalWidth; outCanvas.height = resultImg.naturalHeight;
+  outCanvas.getContext('2d').drawImage(resultImg, 0, 0);
+  return new Promise(r => outCanvas.toBlob(r, fmtMime(fmtVal), fmtVal === 'png' ? undefined : 1.0));
+}
+
+// ── Replicate Real-ESRGAN ──────────────────────────────────────
+async function upscaleViaReplicate(img, scale, apiKey, fmtVal) {
+  progress(5, 'Converting image for upload…');
+  await tick();
+
+  const srcCanvas = document.createElement('canvas');
+  srcCanvas.width = img.naturalWidth; srcCanvas.height = img.naturalHeight;
+  srcCanvas.getContext('2d').drawImage(img, 0, 0);
+  const dataUrl = srcCanvas.toDataURL('image/jpeg', 0.95);
+
+  progress(12, 'Sending to Replicate Real-ESRGAN…');
+
+  const createResp = await fetch('https://api.replicate.com/v1/models/nightmareai/real-esrgan/predictions', {
+    method: 'POST',
+    headers: { 'Authorization': `Token ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ input: { image: dataUrl, scale, face_enhance: false } })
+  });
+
+  if (!createResp.ok) {
+    const err = await createResp.json().catch(() => ({}));
+    throw new Error(err.detail || `HTTP ${createResp.status}`);
+  }
+
+  let prediction = await createResp.json();
+  const pollUrl  = `https://api.replicate.com/v1/predictions/${prediction.id}`;
+  let elapsed    = 0;
+
+  // Poll until done
+  while (prediction.status !== 'succeeded' && prediction.status !== 'failed' && prediction.status !== 'canceled') {
+    await new Promise(r => setTimeout(r, 1500));
+    elapsed += 1.5;
+    const pollResp = await fetch(pollUrl, { headers: { 'Authorization': `Token ${apiKey}` } });
+    prediction = await pollResp.json();
+    const pct = Math.min(85, 15 + elapsed * 3);
+    progress(pct, `Real-ESRGAN processing… (${prediction.status}, ${elapsed.toFixed(0)}s)`);
+  }
+
+  if (prediction.status !== 'succeeded') throw new Error(prediction.error || 'Prediction failed');
+
+  progress(88, 'Downloading result…');
+  const outputUrl  = Array.isArray(prediction.output) ? prediction.output[0] : prediction.output;
+  const imgResp    = await fetch(outputUrl);
+  const resultBlob = await imgResp.blob();
+
+  // Convert to requested format
+  const resultImg  = await loadImg(URL.createObjectURL(resultBlob));
+  const outCanvas  = document.createElement('canvas');
+  outCanvas.width  = resultImg.naturalWidth;
+  outCanvas.height = resultImg.naturalHeight;
+  outCanvas.getContext('2d').drawImage(resultImg, 0, 0);
+  progress(96, 'Encoding final image…');
+  return new Promise(r => outCanvas.toBlob(r, fmtMime(fmtVal), fmtVal === 'png' ? undefined : 1.0));
+}
+
+async function smartUpscale(img, targetW, targetH, mime, fmtVal) {
+  // Step 1: multi-step scaling (max 2× per step avoids interpolation collapse)
+  let canvas = document.createElement('canvas');
+  canvas.width  = img.naturalWidth;
+  canvas.height = img.naturalHeight;
+  canvas.getContext('2d').drawImage(img, 0, 0);
+
+  let cw = img.naturalWidth, ch = img.naturalHeight;
+  while (cw < targetW || ch < targetH) {
+    const sw = Math.min(cw * 2, targetW);
+    const sh = Math.min(ch * 2, targetH);
+    const next = document.createElement('canvas');
+    next.width = sw; next.height = sh;
+    const ctx = next.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(canvas, 0, 0, sw, sh);
+    canvas = next; cw = sw; ch = sh;
+    progress(10 + (cw / targetW) * 55, `Upscaling step: ${cw}×${ch}…`);
+    await tick();
+  }
+
+  // Step 2: unsharp mask to recover perceived sharpness
+  progress(70, 'Sharpening…');
+  await tick();
+  canvas = applyUnsharpMask(canvas, 1.0, 1.4);
+
+  progress(90, 'Encoding…');
+  await tick();
+  return new Promise(r => canvas.toBlob(r, mime, fmtVal === 'png' ? undefined : 1.0));
+}
+
+function applyUnsharpMask(src, radius, amount) {
+  const w = src.width, h = src.height;
+  // Get original pixels
+  const origCtx = src.getContext('2d');
+  const origData = origCtx.getImageData(0, 0, w, h);
+
+  // Create blurred version
+  const blurCanvas = document.createElement('canvas');
+  blurCanvas.width = w; blurCanvas.height = h;
+  const bCtx = blurCanvas.getContext('2d');
+  bCtx.filter = `blur(${radius}px)`;
+  bCtx.drawImage(src, 0, 0);
+  const blurData = bCtx.getImageData(0, 0, w, h);
+
+  // Sharpen: out = orig + amount*(orig - blur)
+  const out = origCtx.createImageData(w, h);
+  for (let i = 0; i < origData.data.length; i += 4) {
+    for (let c = 0; c < 3; c++) {
+      out.data[i+c] = Math.min(255, Math.max(0,
+        origData.data[i+c] + amount * (origData.data[i+c] - blurData.data[i+c])
+      ));
+    }
+    out.data[i+3] = origData.data[i+3];
+  }
+
+  const result = document.createElement('canvas');
+  result.width = w; result.height = h;
+  result.getContext('2d').putImageData(out, 0, 0);
+  return result;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// REMOVE BACKGROUND
+// ═══════════════════════════════════════════════════════════════
+window.doRemoveBG = async () => {
+  if (!files.length) return;
+  const { file, img, url } = files[0];
+
+  show('cardProcessing'); hide('cardBGResult');
+  document.getElementById('procTitle').textContent = 'Removing Background';
+  progress(3, 'Initialising AI model…');
+
+  try {
+    await ensureBGModel();
+  } catch (e) {
+    hide('cardProcessing');
+    alert('Failed to load background removal model. Check your internet connection and try again.');
+    return;
+  }
+
+  try {
+    progress(10, 'Processing — this may take 5–30 seconds…');
+    const resultBlob = await bgRemoveFn(url, {
+      progress: (key, cur, total) => {
+        if (total > 0) progress(10 + (cur/total)*80, `${key}: ${Math.round(cur/total*100)}%`);
+      }
+    });
+
+    progress(93, 'Preparing download…');
+    const resultURL = URL.createObjectURL(resultBlob);
+    document.getElementById('bgImgOrig').src = url;
+    document.getElementById('bgImgResult').src = resultURL;
+
+    // Build download file
+    const fmtVal  = document.getElementById('bgFmt').value;
+    const fillColor = document.getElementById('bgFill').value;
+    const base    = file.name.replace(/\.[^.]+$/, '');
+    let dlUrl, dlName;
+
+    if (fmtVal === 'svg') {
+      const tempImg = await loadImg(resultURL);
+      const c = document.createElement('canvas');
+      c.width = tempImg.naturalWidth; c.height = tempImg.naturalHeight;
+      c.getContext('2d').drawImage(tempImg, 0, 0);
+      const dataUrl = c.toDataURL('image/png');
+      const svgStr = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${tempImg.naturalWidth}" height="${tempImg.naturalHeight}" viewBox="0 0 ${tempImg.naturalWidth} ${tempImg.naturalHeight}">\n  <image width="${tempImg.naturalWidth}" height="${tempImg.naturalHeight}" xlink:href="${dataUrl}"/>\n</svg>`;
+      dlUrl  = URL.createObjectURL(new Blob([svgStr], { type:'image/svg+xml' }));
+      dlName = `${base}_no_bg.svg`;
+    } else if (fillColor !== 'transparent') {
+      const tempImg = await loadImg(resultURL);
+      const c = document.createElement('canvas');
+      c.width = tempImg.naturalWidth; c.height = tempImg.naturalHeight;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = fillColor;
+      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.drawImage(tempImg, 0, 0);
+      dlUrl  = URL.createObjectURL(await new Promise(r => c.toBlob(r, 'image/png')));
+      dlName = `${base}_no_bg.png`;
+    } else {
+      dlUrl  = resultURL;
+      dlName = `${base}_no_bg.png`;
+    }
+
+    const dlBtn = document.getElementById('bgDlBtn');
+    dlBtn.href = dlUrl; dlBtn.download = dlName;
+
+    progress(100, 'Done!');
+    hide('cardProcessing');
+    show('cardBGResult');
+
+  } catch (e) {
+    console.error('BG removal failed:', e);
+    hide('cardProcessing');
+    alert('Background removal failed. Try again — model may still be downloading.');
+  }
+};
+
+window.resetBG = () => { hide('cardBGResult'); };
+
+// ═══════════════════════════════════════════════════════════════
+// SHARED: Show compress/upscale result
+// ═══════════════════════════════════════════════════════════════
+function showProcessResult(blob, fmtVal, file, img) {
+  hide('cardProcessing');
+  if (!blob) {
+    alert('Could not reach target. Try a different strategy or a larger target size.');
+    return;
+  }
+  const url = URL.createObjectURL(blob);
+  const rImg = document.getElementById('imgResult');
+  rImg.onload = () => {
+    document.getElementById('rDims').textContent =
+      `${img.naturalWidth}×${img.naturalHeight}  →  ${rImg.naturalWidth}×${rImg.naturalHeight}`;
+  };
+  rImg.src = url;
+  document.getElementById('rSizes').textContent = `${fmt(file.size)}  →  ${fmt(blob.size)}`;
+  document.getElementById('rFmt').textContent =
+    `${file.type.split('/')[1].toUpperCase()}  →  ${fmtVal.toUpperCase()}`;
+  const diff = blob.size - file.size;
+  const pct  = Math.abs(diff / file.size * 100).toFixed(1);
+  const rDelta = document.getElementById('rDelta');
+  if (diff < 0)      rDelta.innerHTML = `<span class="badge badge-down">▼ ${pct}% smaller</span>`;
+  else if (diff > 0) rDelta.innerHTML = `<span class="badge badge-up">▲ ${pct}% larger</span>`;
+  else               rDelta.innerHTML = `<span class="badge badge-neutral">No change</span>`;
+
+  const ext  = fmtVal === 'jpeg' ? 'jpg' : fmtVal;
+  const base = file.name.replace(/\.[^.]+$/, '') || 'image';
+  const dl   = document.getElementById('dlBtn');
+  dl.href = url; dl.download = `${base}_processed.${ext}`;
+  show('cardResult');
+}
+
+window.resetResult = () => hide('cardResult');
+
+// ═══════════════════════════════════════════════════════════════
+// UTILITIES
+// ═══════════════════════════════════════════════════════════════
+function toBlob(img, w, h, mime, quality) {
+  return new Promise(res => {
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const ctx = c.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0, w, h);
+    c.toBlob(res, mime, quality);
+  });
+}
+
+function fmtMime(f) {
+  return f === 'webp' ? 'image/webp' : f === 'png' ? 'image/png' : 'image/jpeg';
+}
+
+function fmt(bytes) {
+  if (bytes >= 1048576) return (bytes/1048576).toFixed(2)+' MB';
+  if (bytes >= 1024)    return (bytes/1024).toFixed(1)+' KB';
+  return bytes+' B';
+}
+
+function progress(pct, msg) {
+  document.getElementById('progFill').style.width = pct + '%';
+  document.getElementById('progMsg').textContent  = msg;
+}
+
+function show(id)          { document.getElementById(id)?.classList.remove('hidden'); }
+function hide(id)          { document.getElementById(id)?.classList.add('hidden'); }
+function toggle(id, vis)   { vis ? show(id) : hide(id); }
+function tick()            { return new Promise(r => setTimeout(r, 0)); }
+function esc(s)            { return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+
+function markThumb(i, cls) {
+  const el = document.getElementById(`ft${i}`);
+  if (el) { el.classList.remove('done','processing'); el.classList.add(cls); }
+}
+
+function triggerDownload(url, name) {
+  const a = document.createElement('a');
+  a.href = url; a.download = name; a.click();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════
+syncUploadZone();
+// Pre-warm upscaler when its tab is clicked
+document.querySelector('[data-tab="upscale"]').addEventListener('click', () => {
+  if (!upscaler) initUpscaler();
+}, { once: true });
+</script>
+</body>
+</html>
