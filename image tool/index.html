@@ -343,7 +343,7 @@
       <div class="card-title">Remove Background</div>
       <div class="ai-strip" id="bgStrip">
         <div class="ai-dot loading" id="bgDot"></div>
-        <span id="bgMsg">AI model loads on first use (~50 MB, cached by browser after)</span>
+        <span id="bgMsg">Uses your ClipDrop key if set — otherwise falls back to browser AI model</span>
       </div>
       <div class="fields">
         <div class="field">
@@ -596,7 +596,14 @@ async function ensureBGModel() {
 }
 
 function updateBGStrip() {
-  if (bgRemoveFn) setAiStrip('bgDot','bgMsg','ready','Background removal AI model ready ✓');
+  const cdKey = document.getElementById('clipdropKey').value.trim();
+  if (cdKey.length > 10) {
+    setAiStrip('bgDot','bgMsg','ready','ClipDrop key detected — instant background removal ready ✓');
+  } else if (bgRemoveFn) {
+    setAiStrip('bgDot','bgMsg','ready','Browser AI model ready ✓');
+  } else {
+    setAiStrip('bgDot','bgMsg','loading','No ClipDrop key — will use browser AI model (~50 MB download on first use)');
+  }
 }
 
 function setAiStrip(dotId, msgId, state, msg) {
@@ -1089,26 +1096,63 @@ function applyUnsharpMask(src, radius, amount) {
 window.doRemoveBG = async () => {
   if (!files.length) return;
   const { file, img, url } = files[0];
+  const cdKey = document.getElementById('clipdropKey').value.trim();
 
   show('cardProcessing'); hide('cardBGResult');
   document.getElementById('procTitle').textContent = 'Removing Background';
-  progress(3, 'Initialising AI model…');
 
-  try {
-    await ensureBGModel();
-  } catch (e) {
-    hide('cardProcessing');
-    alert('Failed to load background removal model. Check your internet connection and try again.');
-    return;
+  let resultBlob = null;
+
+  // ── Priority 1: ClipDrop API (instant, reliable) ──
+  if (cdKey.length > 10) {
+    try {
+      progress(5, 'Sending to ClipDrop background removal…');
+      const srcCanvas = document.createElement('canvas');
+      srcCanvas.width = img.naturalWidth; srcCanvas.height = img.naturalHeight;
+      srcCanvas.getContext('2d').drawImage(img, 0, 0);
+      const srcBlob = await new Promise(r => srcCanvas.toBlob(r, 'image/png'));
+      const form = new FormData();
+      form.append('image_file', srcBlob, 'image.png');
+      const resp = await fetch('https://clipdrop-api.co/remove-background/v1', {
+        method: 'POST',
+        headers: { 'x-api-key': cdKey },
+        body: form
+      });
+      if (!resp.ok) throw new Error(`ClipDrop ${resp.status}`);
+      resultBlob = await resp.blob();
+      progress(90, 'Done!');
+      setAiStrip('bgDot','bgMsg','ready','Background removed via ClipDrop ✓');
+    } catch (e) {
+      console.warn('ClipDrop BG removal failed:', e);
+      progress(5, `ClipDrop failed (${e.message}) — trying browser model…`);
+      await tick();
+      resultBlob = null;
+    }
+  }
+
+  // ── Priority 2: Browser ML model (slow, ~50MB download) ──
+  if (!resultBlob) {
+    try {
+      progress(5, 'Loading browser AI model (~50 MB)…');
+      setAiStrip('bgDot','bgMsg','loading','Loading browser AI model — this takes a few minutes on first use…');
+      await ensureBGModel();
+      progress(15, 'Processing image…');
+      resultBlob = await bgRemoveFn(url, {
+        progress: (key, cur, total) => {
+          if (total > 0) progress(15 + (cur/total)*75, `${key}: ${Math.round(cur/total*100)}%`);
+        }
+      });
+      setAiStrip('bgDot','bgMsg','ready','Background removed via browser AI ✓');
+    } catch (e) {
+      hide('cardProcessing');
+      setAiStrip('bgDot','bgMsg','err','Background removal failed');
+      alert('Background removal failed.\n\nAdd a ClipDrop API key in the Upscale tab for instant reliable results.');
+      return;
+    }
   }
 
   try {
-    progress(10, 'Processing — this may take 5–30 seconds…');
-    const resultBlob = await bgRemoveFn(url, {
-      progress: (key, cur, total) => {
-        if (total > 0) progress(10 + (cur/total)*80, `${key}: ${Math.round(cur/total*100)}%`);
-      }
-    });
+    progress(93, 'Preparing download…');
 
     progress(93, 'Preparing download…');
     const resultURL = URL.createObjectURL(resultBlob);
