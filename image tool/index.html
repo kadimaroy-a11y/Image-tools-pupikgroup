@@ -192,10 +192,27 @@
     .chk-row{display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-size:13px;font-weight:600;
       color:var(--text);text-transform:none;letter-spacing:normal;line-height:1.35;}
     .chk-row input{flex-shrink:0;margin-top:2px;width:18px;height:18px;accent-color:var(--accent);cursor:pointer;}
+    .proc-layout{display:grid;grid-template-columns:220px 1fr;gap:14px;align-items:start;}
+    .proc-menu{padding:14px;position:sticky;top:14px;}
+    .proc-menu .card-title{margin-bottom:10px;padding:0 4px;}
+    .proc-item{display:flex;flex-direction:column;gap:3px;width:100%;text-align:left;background:none;
+      border:1px solid transparent;border-radius:8px;padding:10px 12px;color:var(--text);cursor:pointer;
+      transition:background .15s;}
+    .proc-item+.proc-item{margin-top:4px;}
+    .proc-item:hover{background:var(--sur2);}
+    .proc-item.active{background:rgba(79,126,248,.12);border-color:rgba(79,126,248,.35);}
+    .proc-item .pi-name{font-size:13px;font-weight:700;}
+    .proc-item.active .pi-name{color:var(--accent);}
+    .proc-item .pi-desc{font-size:11px;color:var(--text2);line-height:1.35;}
+    .proc-body,.proc-pane{display:flex;flex-direction:column;gap:14px;min-width:0;}
     .proc-steps{margin:0 0 16px 20px;font-size:13px;line-height:1.7;color:var(--text);}
     .proc-steps li::marker{color:var(--accent);font-weight:700;}
     input.range{width:100%;accent-color:var(--accent);cursor:pointer;}
 
+    @media(max-width:700px){
+      .proc-layout{grid-template-columns:1fr;}
+      .proc-menu{position:static;}
+    }
     @media(max-width:600px){
       .result-imgs,.two-col{grid-template-columns:1fr;}
       .tab-btn{padding:12px 13px;font-size:12px;}
@@ -467,31 +484,46 @@
 
   <!-- ═══════════════════════════════ PROCEDURES ═══════════════════════════════ -->
   <div id="panelProcedures" class="panel hidden">
-    <div class="card">
-      <div class="card-title">Procedure — E-shop Images</div>
-      <div class="ai-strip">
-        <div class="ai-dot" id="eshopDot"></div>
-        <span id="eshopMsg">BiRefNet + Real-ESRGAN AI (free, runs on your device) — loads when you open this tab</span>
-      </div>
-      <ol class="proc-steps">
-        <li>Remove the background and replace it with pure white</li>
-        <li>Center the product in a 2048 × 2048 square with a minimal border — upscaled with AI when needed</li>
-        <li>Save as WebP</li>
-      </ol>
-      <div class="fields">
-        <div class="field">
-          <label for="eshopMargin">Border Around Product</label>
-          <input type="range" id="eshopMargin" class="range" min="0" max="15" step="1" value="5" oninput="onEshopMargin()">
-          <div class="hint ok" id="eshopMarginHint"></div>
+    <div class="proc-layout">
+      <nav class="card proc-menu" aria-label="Procedures">
+        <div class="card-title">Procedures</div>
+        <button class="proc-item active" data-proc="eshop">
+          <span class="pi-name">🛍️ E-shop Images</span>
+          <span class="pi-desc">White background · centered 2048² · WebP</span>
+        </button>
+      </nav>
+
+      <div class="proc-body">
+        <!-- E-shop Images -->
+        <div class="proc-pane" id="procEshop">
+          <div class="card">
+            <div class="card-title">E-shop Images</div>
+            <div class="ai-strip">
+              <div class="ai-dot" id="eshopDot"></div>
+              <span id="eshopMsg">BiRefNet + Real-ESRGAN AI (free, runs on your device) — loads when you open this tab</span>
+            </div>
+            <ol class="proc-steps">
+              <li>Remove the background and replace it with pure white</li>
+              <li>Center the product in a 2048 × 2048 square with a minimal border — upscaled with AI when needed</li>
+              <li>Save as WebP</li>
+            </ol>
+            <div class="fields">
+              <div class="field">
+                <label for="eshopMargin">Border Around Product</label>
+                <input type="range" id="eshopMargin" class="range" min="0" max="15" step="1" value="5" oninput="onEshopMargin()">
+                <div class="hint ok" id="eshopMarginHint"></div>
+              </div>
+            </div>
+            <button class="btn-main" id="btnEshop" onclick="doEshop()" disabled>🛍️ Run E-shop Images</button>
+          </div>
+          <div class="card hidden" id="cardEshopResult">
+            <div class="card-title">E-shop Images — Results</div>
+            <div class="batch-list" id="eshopBatchList"></div>
+            <div class="hidden" id="eshopZipRow" style="margin-top:12px;">
+              <button class="btn-dl" onclick="downloadBatchZip('eshop')">📦 Download All as ZIP</button>
+            </div>
+          </div>
         </div>
-      </div>
-      <button class="btn-main" id="btnEshop" onclick="doEshop()" disabled>🛍️ Run E-shop Images</button>
-    </div>
-    <div class="card hidden" id="cardEshopResult">
-      <div class="card-title">E-shop Images</div>
-      <div class="batch-list" id="eshopBatchList"></div>
-      <div class="hidden" id="eshopZipRow" style="margin-top:12px;">
-        <button class="btn-dl" onclick="downloadBatchZip('eshop')">📦 Download All as ZIP</button>
       </div>
     </div>
   </div>
@@ -553,7 +585,7 @@
 // VERSION — APP_BUILD is stamped by deploy.ps1 on every publish
 // ═══════════════════════════════════════════════════════════════
 const APP_VERSION = '2.1';
-const APP_BUILD = '2026-10-10 23:02';
+const APP_BUILD = '2026-10-10 23:12';
 {
   const local = APP_BUILD.includes('BUILD');
   const host = location.hostname;
@@ -624,7 +656,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     refreshButtons();
     if (activeTab === 'upscale') ensureUpscaler().catch(() => {});
     if (activeTab === 'removebg') ensureBGEngine(document.getElementById('bgModel').value).catch(() => {});
-    if (activeTab === 'procedures') warmEshop();
+    if (activeTab === 'procedures') openProcedure(activeProc);
   });
 });
 
@@ -2025,8 +2057,23 @@ function showBGResult(blob, name, origUrl) {
 window.resetBG = () => { hide('cardBGResult'); };
 
 // ═══════════════════════════════════════════════════════════════
-// PROCEDURES — E-shop images: white background, centered 2048² square, WebP
+// PROCEDURES — each one is a menu item (data-proc) plus a pane, with an optional warm-up when opened
 // ═══════════════════════════════════════════════════════════════
+const PROCEDURES = {
+  eshop: { pane: 'procEshop', warm: () => warmEshop() },
+};
+let activeProc = 'eshop';
+
+function openProcedure(key) {
+  activeProc = key;
+  document.querySelectorAll('.proc-item').forEach(b => b.classList.toggle('active', b.dataset.proc === key));
+  Object.entries(PROCEDURES).forEach(([k, p]) => toggle(p.pane, k === key));
+  PROCEDURES[key].warm?.();
+}
+
+document.querySelectorAll('.proc-item').forEach(b => b.addEventListener('click', () => openProcedure(b.dataset.proc)));
+
+// ── E-shop images: white background, centered 2048² square, WebP ──
 const ESHOP_SIZE = 2048;
 const ESHOP_AI_MAX_IN = 1024;       // 4× of this already exceeds 2048, so larger crops are pre-shrunk to save time
 const ESHOP_PREFS_KEY = 'eshopPrefs.v1';
