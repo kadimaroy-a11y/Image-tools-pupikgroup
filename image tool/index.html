@@ -109,7 +109,7 @@
     .result-imgs{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px;}
     .img-box{background:var(--sur2);border-radius:8px;overflow:hidden;aspect-ratio:4/3;
       display:flex;align-items:center;justify-content:center;position:relative;}
-    .img-box.checker{
+    .img-box.checker,.checker-bg{
       background-image:linear-gradient(45deg,#2a2a2a 25%,transparent 25%),
         linear-gradient(-45deg,#2a2a2a 25%,transparent 25%),
         linear-gradient(45deg,transparent 75%,#2a2a2a 75%),
@@ -143,6 +143,30 @@
     .batch-item.failed .bi-size{color:var(--red);}
     .batch-item a.dl-link{font-size:12px;color:var(--accent);text-decoration:none;white-space:nowrap;font-weight:600;}
     .batch-item a.dl-link:hover{text-decoration:underline;}
+    .batch-item img.zoomable{width:56px;height:56px;}
+    .batch-item .bi-actions{display:flex;align-items:center;gap:14px;}
+    .batch-item button.view-link{background:none;border:none;padding:0;font:inherit;font-size:12px;
+      font-weight:600;color:var(--text2);cursor:pointer;white-space:nowrap;}
+    .batch-item button.view-link:hover{color:var(--text);}
+    .batch-item.stopped .bi-size{color:var(--yellow);}
+
+    /* ── Zoom viewer ── */
+    .zoomable{cursor:zoom-in;}
+    .zoom-tip{position:absolute;bottom:8px;right:8px;background:rgba(0,0,0,.65);border-radius:4px;
+      padding:2px 8px;font-size:11px;font-weight:600;pointer-events:none;}
+    #viewer{position:fixed;inset:0;z-index:1000;background:#07090e;display:flex;flex-direction:column;}
+    #viewer .v-bar{display:flex;align-items:center;gap:8px;padding:10px 16px;background:var(--sur);
+      border-bottom:1px solid var(--border);flex-wrap:wrap;}
+    #viewer .v-title{flex:1;min-width:120px;font-size:13px;font-weight:600;overflow:hidden;
+      text-overflow:ellipsis;white-space:nowrap;}
+    #viewer .v-tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;background:var(--accent);}
+    #viewer .v-tag.orig{background:var(--yellow);color:#111;}
+    #viewer .v-bar .btn-sec,#viewer .v-bar .btn-dl{width:auto;padding:8px 14px;font-size:12px;}
+    #viewer .v-stage{flex:1;overflow:auto;display:flex;padding:16px;}
+    #viewer .v-stage img{margin:auto;display:block;flex-shrink:0;cursor:zoom-in;user-select:none;-webkit-user-drag:none;}
+    #viewer.actual .v-stage img{cursor:grab;}
+    #viewer.actual.dragging .v-stage img{cursor:grabbing;}
+    #viewer .v-hint{text-align:center;font-size:11px;color:var(--text2);padding:6px;}
 
     /* ── Engine status strip ── */
     .ai-strip{display:flex;align-items:center;gap:8px;background:rgba(168,85,247,.07);
@@ -402,11 +426,12 @@
       <div class="two-col" style="margin-bottom:14px;">
         <div class="img-box">
           <span class="img-label">Original</span>
-          <img id="bgImgOrig">
+          <img id="bgImgOrig" class="zoomable" onclick="viewBGResult(true)">
         </div>
         <div class="img-box checker">
           <span class="img-label">Background Removed</span>
-          <img id="bgImgResult">
+          <img id="bgImgResult" class="zoomable" onclick="viewBGResult(false)">
+          <span class="zoom-tip">🔍 Click to enlarge</span>
         </div>
       </div>
       <div class="btn-row">
@@ -429,6 +454,9 @@
     <div class="card-title" id="procTitle">Processing</div>
     <div class="prog-bar"><div id="progFill" style="width:0%"></div></div>
     <div class="hint" id="progMsg">Starting…</div>
+    <div class="btn-row">
+      <button class="btn-sec" id="btnStop" onclick="stopProcess()">⏹ Stop</button>
+    </div>
   </div>
 
   <!-- ═══ RESULT (compress / upscale single file) ═══ -->
@@ -437,11 +465,12 @@
     <div class="result-imgs">
       <div class="img-box">
         <span class="img-label">Original</span>
-        <img id="imgOrig">
+        <img id="imgOrig" class="zoomable" onclick="viewProcessResult(true)">
       </div>
       <div class="img-box" id="imgResultBox">
         <span class="img-label">Result</span>
-        <img id="imgResult">
+        <img id="imgResult" class="zoomable" onclick="viewProcessResult(false)">
+        <span class="zoom-tip">🔍 Click to enlarge</span>
       </div>
     </div>
     <div class="stats">
@@ -457,6 +486,20 @@
   </div>
 
 </main>
+
+<!-- ═══ ZOOM VIEWER ═══ -->
+<div id="viewer" class="hidden" role="dialog" aria-modal="true">
+  <div class="v-bar">
+    <span class="v-tag" id="vTag">Result</span>
+    <span class="v-title" id="vTitle"></span>
+    <button class="btn-sec" id="vCompare" onclick="viewerToggleCompare()">⇄ Show original</button>
+    <button class="btn-sec" id="vZoom" onclick="viewerToggleZoom()">🔍 Actual size</button>
+    <a class="btn-dl" id="vDl" download>📥 Download</a>
+    <button class="btn-sec" onclick="closeViewer()">✕ Close</button>
+  </div>
+  <div class="v-stage" id="vStage"><img id="vImg" alt=""></div>
+  <div class="v-hint" id="vHint"></div>
+</div>
 
 <script type="module">
 // ═══════════════════════════════════════════════════════════════
@@ -491,6 +534,7 @@ let files = [];           // [{file, img, url}]
 let activeTab = 'convert';
 let lastResultUrl = null;
 let lastBGUrls = [];
+let job = null;           // AbortController of the running tool
 const batches = { convert: [], compress: [], upscale: [], removebg: [] };   // [{blob, name, url}]
 const ZIP_NAMES = {
   convert: 'converted_images.zip', compress: 'compressed_images.zip',
@@ -630,7 +674,7 @@ window.clearFiles = () => {
 };
 
 function refreshButtons() {
-  const has = files.length > 0;
+  const has = files.length > 0 && !job;
   setDis('btnConvert',  !has);
   setDis('btnCompress', !has);
   setDis('btnUpscale',  !has);
@@ -656,22 +700,122 @@ function addToBatch(key, blob, name) {
   return { url, name: unique };
 }
 
+const isImageName = name => /\.(jpe?g|png|webp|avif|svg)$/i.test(name);
+
 function batchRow(thumbUrl, name, info, url) {
+  const viewable = url && isImageName(name);
+  const view = viewable ? ` data-result="${url}" data-orig="${thumbUrl}" data-name="${esc(name)}"` : '';
   return `
-    <div class="batch-item${url ? '' : ' failed'}">
-      <img src="${thumbUrl}" alt="">
+    <div class="batch-item${url ? '' : ' failed'}"${view}>
+      <img src="${thumbUrl}" alt=""${viewable ? ' class="zoomable" title="Click to enlarge"' : ''}>
       <div class="bi-info">
         <div class="bi-name" title="${esc(name)}">${esc(name)}</div>
         <div class="bi-size">${info}</div>
       </div>
-      ${url ? `<a class="dl-link" href="${url}" download="${esc(name)}">↓ Save</a>` : ''}
+      <div class="bi-actions">
+        ${viewable ? '<button class="view-link">👁 View</button>' : ''}
+        ${url ? `<a class="dl-link" href="${url}" download="${esc(name)}">↓ Save</a>` : ''}
+      </div>
+    </div>`;
+}
+
+function stoppedRow(count) {
+  return `
+    <div class="batch-item stopped">
+      <div class="bi-info">
+        <div class="bi-name">⏹ Stopped</div>
+        <div class="bi-size">${count} file${count > 1 ? 's' : ''} not processed</div>
+      </div>
     </div>`;
 }
 
 function showBatch(key, cardId, rows) {
-  document.getElementById(key + 'BatchList').innerHTML = rows.join('');
+  const list = document.getElementById(key + 'BatchList');
+  list.innerHTML = rows.join('');
   toggle(key + 'ZipRow', batches[key].length > 1);
   show(cardId);
+  renderResultThumbs(list, key === 'removebg');
+}
+
+/** Swap each row's thumbnail for a small preview of its result, one at a time to limit memory. */
+async function renderResultThumbs(list, transparent) {
+  for (const item of list.querySelectorAll('.batch-item[data-result]')) {
+    try {
+      const img = await loadImg(item.dataset.result);
+      const s = Math.min(1, 112 / Math.min(img.naturalWidth, img.naturalHeight));
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(img.naturalWidth * s));
+      c.height = Math.max(1, Math.round(img.naturalHeight * s));
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      const thumb = item.querySelector('img');
+      thumb.src = c.toDataURL('image/png');
+      if (transparent) thumb.classList.add('checker-bg');
+    } catch { /* keep the original thumbnail */ }
+    await tick();
+  }
+}
+
+document.addEventListener('click', e => {
+  const trigger = e.target.closest('.batch-item[data-result] img, .batch-item[data-result] .view-link');
+  if (!trigger) return;
+  const item = trigger.closest('.batch-item');
+  openViewer({
+    src: item.dataset.result, orig: item.dataset.orig, name: item.dataset.name,
+    transparent: !!item.closest('#removebgBatchList'),
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// JOBS & STOP (one tool run at a time)
+// ═══════════════════════════════════════════════════════════════
+const isAbort = err => err?.name === 'AbortError';
+
+/** Resolves like `promise`, but rejects as soon as Stop is pressed (the work itself may finish in the background). */
+function untilAborted(promise, signal) {
+  return Promise.race([promise, new Promise((_, rej) => {
+    if (signal.aborted) rej(signal.reason);
+    signal.addEventListener('abort', () => rej(signal.reason), { once: true });
+  })]);
+}
+
+function runJob(fn) {
+  return async () => {
+    if (job) return;
+    job = new AbortController();
+    refreshButtons();
+    files.forEach((_, i) => markThumb(i, null));
+    try { await fn(job.signal); }
+    finally {
+      job = null;
+      hide('cardProcessing');
+      refreshButtons();
+    }
+  };
+}
+
+function beginJob(title) {
+  document.getElementById('procTitle').textContent = title;
+  const stop = document.getElementById('btnStop');
+  stop.disabled = false;
+  stop.textContent = '⏹ Stop';
+  show('cardProcessing');
+}
+
+window.stopProcess = () => {
+  if (!job || job.signal.aborted) return;
+  job.abort(new DOMException('Stopped', 'AbortError'));
+  cancelCodecJobs();
+  const stop = document.getElementById('btnStop');
+  stop.disabled = true;
+  stop.textContent = 'Stopping…';
+  document.getElementById('progMsg').textContent = 'Stopping after the current step — finished files are kept…';
+};
+
+/** Shows a batch result card with whatever finished; skipped files get a single "Stopped" row. */
+function endBatch(key, cardId, rows, stopped) {
+  hide('cardProcessing');
+  if (!rows.length) return;
+  showBatch(key, cardId, stopped ? rows.concat(stoppedRow(stopped)) : rows);
 }
 
 window.downloadBatchZip = async key => {
@@ -941,6 +1085,20 @@ function runCodec(op, args, { onStep, onStart } = {}) {
   });
 }
 
+/** Drops queued jobs and kills busy workers; fresh workers spawn on the next job. */
+function cancelCodecJobs() {
+  const err = new DOMException('Stopped', 'AbortError');
+  codecPool.queue.splice(0).forEach(j => j.reject(err));
+  codecPool.slots = codecPool.slots.filter(s => {
+    if (!s.job) return true;
+    s.worker.terminate();
+    const j = s.job;
+    s.job = null;
+    j.reject(err);
+    return false;
+  });
+}
+
 function setCodecStatus(state, msg) {
   document.querySelectorAll('.codec-dot').forEach(d => { d.className = 'ai-dot codec-dot ' + state; });
   document.querySelectorAll('.codec-msg').forEach(m => { m.textContent = msg; });
@@ -960,6 +1118,7 @@ function warmCodecs() {
   runCodec('warmup', { fmt: 'jpeg' })
     .then(r => reportCodecEngine([r.engine]))
     .catch(err => {
+      if (isAbort(err)) { warmCodecs(); return; }
       console.warn('Codec worker failed to start:', err);
       setCodecStatus('err', 'Engine: background workers unavailable in this browser');
     });
@@ -972,7 +1131,11 @@ async function runCodecBatch(op, argsFor, verb) {
   return Promise.all(files.map((f, i) =>
     runCodec(op, argsFor(f), { onStart: () => markThumb(i, 'processing') })
       .then(r => { markThumb(i, 'done'); return r; })
-      .catch(err => { markThumb(i, 'failed'); return { error: err.message }; })
+      .catch(err => {
+        if (isAbort(err)) { markThumb(i, null); return { stopped: true }; }
+        markThumb(i, 'failed');
+        return { error: err.message };
+      })
       .finally(() => { done++; progress((done / total) * 100, `${verb} ${done}/${total}…`); })
   ));
 }
@@ -1004,7 +1167,7 @@ function addImageToPdfPage(doc, img, quality) {
   doc.addImage(imageToJpegDataUrl(img, quality), 'JPEG', x, y, dw, dh);
 }
 
-async function convertToPdf(quality) {
+async function convertToPdf(quality, signal) {
   try {
     await loadScript(JSPDF_URL);
   } catch {
@@ -1017,10 +1180,12 @@ async function convertToPdf(quality) {
   const combine = document.getElementById('cvtPdfCombine').checked;
   const newDoc = () => new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
   const rows = [];
+  let stopped = 0;
 
   if (combine) {
     const doc = newDoc();
     for (let i = 0; i < files.length; i++) {
+      if (signal.aborted) { files.forEach((_, k) => markThumb(k, null)); return null; }
       markThumb(i, 'processing');
       progress((i / files.length) * 90, `Adding ${files[i].file.name} to PDF…`);
       await tick();
@@ -1034,6 +1199,7 @@ async function convertToPdf(quality) {
     rows.push(batchRow(files[0].url, name, `${files.length} page(s) · ${fmt(blob.size)}`, url));
   } else {
     for (let i = 0; i < files.length; i++) {
+      if (signal.aborted) { stopped = files.length - i; break; }
       const { file, img, url: thumbUrl } = files[i];
       markThumb(i, 'processing');
       progress((i / files.length) * 90, `Creating PDF for ${file.name}…`);
@@ -1047,38 +1213,39 @@ async function convertToPdf(quality) {
     }
   }
   progress(100, 'Done!');
-  return rows;
+  return { rows, stopped };
 }
 
-window.doConvert = async () => {
+window.doConvert = runJob(async signal => {
   if (!files.length) return;
   const fmtVal  = document.getElementById('cvtFmt').value;
   const quality = parseFloat(document.getElementById('cvtQuality').value);
 
   resetBatch('convert');
-  show('cardProcessing'); hide('cardConvertResult');
-  document.getElementById('procTitle').textContent = 'Converting';
+  hide('cardConvertResult');
+  beginJob('Converting');
   progress(0, 'Starting…');
 
-  let rows;
   if (fmtVal === 'pdf') {
-    rows = await convertToPdf(quality);
-  } else {
-    const q = fmtVal === 'png' ? 1 : quality;
-    const results = await runCodecBatch('convert', f => ({ file: f.file, fmt: fmtVal, quality: q }), 'Converted');
-    reportCodecEngine(results.map(r => r.engine).filter(Boolean));
-    rows = results.map((r, i) => {
-      const { file, url: thumbUrl } = files[i];
-      const outName = `${baseName(file)}.${extOf(fmtVal)}`;
-      if (r.error) return batchRow(thumbUrl, outName, `Failed: ${esc(r.error)}`, null);
-      const { url, name } = addToBatch('convert', r.blob, outName);
-      return batchRow(thumbUrl, name, `${sizeChange(file.size, r.blob.size)} · ${fmtVal.toUpperCase()}`, url);
-    });
+    const r = await convertToPdf(quality, signal);
+    if (!r) { hide('cardProcessing'); return; }
+    endBatch('convert', 'cardConvertResult', r.rows, r.stopped);
+    return;
   }
-
-  hide('cardProcessing');
-  if (rows) showBatch('convert', 'cardConvertResult', rows);
-};
+  const q = fmtVal === 'png' ? 1 : quality;
+  const results = await runCodecBatch('convert', f => ({ file: f.file, fmt: fmtVal, quality: q }), 'Converted');
+  reportCodecEngine(results.map(r => r.engine).filter(Boolean));
+  const rows = [];
+  results.forEach((r, i) => {
+    if (r.stopped) return;
+    const { file, url: thumbUrl } = files[i];
+    const outName = `${baseName(file)}.${extOf(fmtVal)}`;
+    if (r.error) { rows.push(batchRow(thumbUrl, outName, `Failed: ${esc(r.error)}`, null)); return; }
+    const { url, name } = addToBatch('convert', r.blob, outName);
+    rows.push(batchRow(thumbUrl, name, `${sizeChange(file.size, r.blob.size)} · ${fmtVal.toUpperCase()}`, url));
+  });
+  endBatch('convert', 'cardConvertResult', rows, results.filter(r => r.stopped).length);
+});
 
 // ═══════════════════════════════════════════════════════════════
 // COMPRESS
@@ -1116,7 +1283,7 @@ function updateCompressHint() {
 document.getElementById('targetSize').addEventListener('input', updateCompressHint);
 document.getElementById('targetUnit').addEventListener('change', updateCompressHint);
 
-window.doCompress = async () => {
+window.doCompress = runJob(async () => {
   if (!files.length) return;
   const tb = targetBytes();
   if (!tb) { alert('Enter a target size first.'); return; }
@@ -1126,13 +1293,12 @@ window.doCompress = async () => {
   const argsFor  = f => ({ file: f.file, fmt: fmtVal, target: tb, strategy });
 
   resetBatch('compress');
-  show('cardProcessing'); hide('cardResult'); hide('cardCompressResult');
-  document.getElementById('procTitle').textContent = 'Compressing';
+  hide('cardResult'); hide('cardCompressResult');
+  beginJob('Compressing');
   progress(0, 'Starting…');
 
   if (files.length === 1) {
-    const { file, img, url } = files[0];
-    document.getElementById('imgOrig').src = url;
+    const { file, img } = files[0];
     let steps = 0;
     try {
       const r = await runCodec('compress', argsFor(files[0]), {
@@ -1144,25 +1310,25 @@ window.doCompress = async () => {
         r.missed ? 'Could not reach target — smallest result shown' : '');
     } catch (err) {
       hide('cardProcessing');
-      alert(`Compression failed: ${err.message}`);
+      if (!isAbort(err)) alert(`Compression failed: ${err.message}`);
     }
     return;
   }
 
   const results = await runCodecBatch('compress', argsFor, 'Compressed');
   reportCodecEngine(results.map(r => r.engine).filter(Boolean));
-  const rows = results.map((r, i) => {
+  const rows = [];
+  results.forEach((r, i) => {
+    if (r.stopped) return;
     const { file, url: thumbUrl } = files[i];
     const outName = `${baseName(file)}.${ext}`;
-    if (r.error) return batchRow(thumbUrl, outName, `Failed: ${esc(r.error)}`, null);
+    if (r.error) { rows.push(batchRow(thumbUrl, outName, `Failed: ${esc(r.error)}`, null)); return; }
     const { url, name } = addToBatch('compress', r.blob, outName);
     const warn = r.missed ? ' · <span style="color:var(--yellow)">⚠ above target</span>' : '';
-    return batchRow(thumbUrl, name, `${sizeChange(file.size, r.blob.size)} · ${r.width}×${r.height} · ${fmtVal.toUpperCase()}${warn}`, url);
+    rows.push(batchRow(thumbUrl, name, `${sizeChange(file.size, r.blob.size)} · ${r.width}×${r.height} · ${fmtVal.toUpperCase()}${warn}`, url));
   });
-
-  hide('cardProcessing');
-  showBatch('compress', 'cardCompressResult', rows);
-};
+  endBatch('compress', 'cardCompressResult', rows, results.filter(r => r.stopped).length);
+});
 
 // ═══════════════════════════════════════════════════════════════
 // SHARED AI HELPERS
@@ -1301,7 +1467,7 @@ function updateUpscaleHint() {
 }
 
 /** Tiled 4× super-resolution; returns a canvas at exactly outW × outH. */
-async function esrganUpscale(img, outW, outH, onTile) {
+async function esrganUpscale(img, outW, outH, onTile, signal) {
   const { ort, session } = await ensureUpscaler();
   const S = 4, T = 384, PAD = 16, STEP = T - 2 * PAD;
   const pre = Math.min(1, Math.sqrt(MAX_AI_OUT_PX / (img.naturalWidth * img.naturalHeight * S * S)));
@@ -1328,6 +1494,7 @@ async function esrganUpscale(img, outW, outH, onTile) {
 
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
+      signal?.throwIfAborted();
       const x0 = c * STEP, y0 = r * STEP;
       const cw = Math.min(STEP, W - x0), ch = Math.min(STEP, H - y0);
       const sx = x0 - PAD, sy = y0 - PAD;
@@ -1412,24 +1579,29 @@ function finishCanvas(src, w, h, fill) {
   return final;
 }
 
-window.doUpscale = async () => {
+window.doUpscale = runJob(async signal => {
   if (!files.length) return;
   const fmtVal = document.getElementById('fmtUpscale').value;
   const mime   = fmtMime(fmtVal);
   if (!upscaleTarget(files[0].img).w) { alert('Enter a target width first.'); return; }
 
   resetBatch('upscale');
-  show('cardProcessing'); hide('cardResult'); hide('cardUpscaleResult');
-  document.getElementById('procTitle').textContent = 'Upscaling';
+  hide('cardResult'); hide('cardUpscaleResult');
+  beginJob('Upscaling');
   progress(1, 'Loading Real-ESRGAN AI…');
 
   let aiReady = true;
-  try { await ensureUpscaler(); } catch { aiReady = false; }
+  try { await untilAborted(ensureUpscaler(), signal); }
+  catch (err) {
+    if (isAbort(err)) return;
+    aiReady = false;
+  }
 
   const n = files.length;
   const rows = [];
-  let single = null;
+  let single = null, stopped = 0;
   for (let i = 0; i < n; i++) {
+    if (signal.aborted) { stopped = n - i; break; }
     const { file, img, url: thumbUrl } = files[i];
     const { w, h, label } = upscaleTarget(img);
     const outName = `${baseName(file)}_upscaled_${label}.${extOf(fmtVal)}`;
@@ -1439,7 +1611,7 @@ window.doUpscale = async () => {
     await tick();
     try {
       const big = aiReady
-        ? await esrganUpscale(img, w, h, (d, t) => progress(((i + d / t) / n) * 98, `${prefix} — tile ${d}/${t}`))
+        ? await esrganUpscale(img, w, h, (d, t) => progress(((i + d / t) / n) * 98, `${prefix} — tile ${d}/${t}`), signal)
         : await smartUpscale(img, w, h);
       const final = finishCanvas(big, w, h, fmtVal === 'jpeg' ? '#ffffff' : null);
       const blob = await canvasToBlob(final, mime, fmtVal === 'png' ? undefined : 0.95);
@@ -1450,6 +1622,7 @@ window.doUpscale = async () => {
       const { url, name } = addToBatch('upscale', blob, outName);
       rows.push(batchRow(thumbUrl, name, `${img.naturalWidth}×${img.naturalHeight} → ${w}×${h} · ${fmt(blob.size)}`, url));
     } catch (err) {
+      if (isAbort(err)) { markThumb(i, null); stopped = n - i; break; }
       console.error('Upscale failed:', err);
       markThumb(i, 'failed');
       rows.push(batchRow(thumbUrl, outName, `Failed: ${esc(err.message || 'out of memory')}`, null));
@@ -1458,10 +1631,13 @@ window.doUpscale = async () => {
 
   progress(100, 'Done!');
   if (single) { showProcessResult(single.blob, fmtVal, single.file, single.img, single.outName); return; }
-  hide('cardProcessing');
-  if (n === 1) { alert(`Upscaling failed. Try a smaller scale factor.`); return; }
-  showBatch('upscale', 'cardUpscaleResult', rows);
-};
+  if (n === 1) {
+    hide('cardProcessing');
+    if (!stopped) alert(`Upscaling failed. Try a smaller scale factor.`);
+    return;
+  }
+  endBatch('upscale', 'cardUpscaleResult', rows, stopped);
+});
 
 /** Last-resort fallback when no AI runtime can load: stepped resize + unsharp mask. */
 async function smartUpscale(img, targetW, targetH) {
@@ -1655,7 +1831,7 @@ async function buildBGOutput(cutout, fmtVal, fillColor) {
   return { blob: new Blob([svg], { type: 'image/svg+xml' }), ext: 'svg' };
 }
 
-window.doRemoveBG = async () => {
+window.doRemoveBG = runJob(async signal => {
   if (!files.length) return;
   const key       = document.getElementById('bgModel').value;
   const fmtVal    = document.getElementById('bgFmt').value;
@@ -1663,27 +1839,30 @@ window.doRemoveBG = async () => {
   const cfg       = BG_MODELS[key];
 
   resetBatch('removebg');
-  show('cardProcessing'); hide('cardBGResult'); hide('cardBGBatchResult');
-  document.getElementById('procTitle').textContent = 'Removing Background';
+  hide('cardBGResult'); hide('cardBGBatchResult');
+  beginJob('Removing Background');
   progress(1, `Loading ${cfg.label} model…`);
 
   let run;
-  try { run = await ensureBGEngine(key); }
+  try { run = await untilAborted(ensureBGEngine(key), signal); }
   catch {
     hide('cardProcessing');
-    alert('Could not load the background removal model. Check your connection and try again.');
+    if (!signal.aborted) alert('Could not load the background removal model. Check your connection and try again.');
     return;
   }
 
   const n = files.length;
   const rows = [];
+  let stopped = 0;
   for (let i = 0; i < n; i++) {
+    if (signal.aborted) { stopped = n - i; break; }
     const { file, img, url: thumbUrl } = files[i];
     markThumb(i, 'processing');
     progress((i / n) * 98 + 1, n > 1 ? `Removing background ${i + 1}/${n}: ${file.name}…` : `Removing background from ${file.name}…`);
     await tick();
     try {
       const { mask, mw, mh } = await run(file);
+      signal.throwIfAborted();
       const cutout = applyMask(img, mask, mw, mh);
       const { blob, ext } = await buildBGOutput(cutout, fmtVal, fillColor);
       cutout.width = cutout.height = 0;
@@ -1693,6 +1872,7 @@ window.doRemoveBG = async () => {
       const { url, name } = addToBatch('removebg', blob, outName);
       rows.push(batchRow(thumbUrl, name, `${img.naturalWidth}×${img.naturalHeight} · ${fmt(blob.size)} · ${ext.toUpperCase()}`, url));
     } catch (err) {
+      if (isAbort(err)) { markThumb(i, null); stopped = n - i; break; }
       console.error('Background removal failed:', err);
       markThumb(i, 'failed');
       rows.push(batchRow(thumbUrl, `${baseName(file)}_no_bg`, `Failed: ${esc(err.message || 'unknown error')}`, null));
@@ -1700,10 +1880,13 @@ window.doRemoveBG = async () => {
   }
 
   progress(100, 'Done!');
-  hide('cardProcessing');
-  if (n === 1) { alert('Background removal failed. Try the other AI model.'); return; }
-  showBatch('removebg', 'cardBGBatchResult', rows);
-};
+  if (n === 1) {
+    hide('cardProcessing');
+    if (!stopped) alert('Background removal failed. Try the other AI model.');
+    return;
+  }
+  endBatch('removebg', 'cardBGBatchResult', rows, stopped);
+});
 
 function showBGResult(blob, name, origUrl) {
   lastBGUrls.forEach(u => URL.revokeObjectURL(u));
@@ -1731,6 +1914,7 @@ function showProcessResult(blob, fmtVal, file, img, downloadName, note) {
   }
   if (lastResultUrl) URL.revokeObjectURL(lastResultUrl);
   const url = lastResultUrl = URL.createObjectURL(blob);
+  document.getElementById('imgOrig').src = img.src;
   const rImg = document.getElementById('imgResult');
   rImg.onload = () => {
     document.getElementById('rDims').textContent =
@@ -1754,6 +1938,140 @@ function showProcessResult(blob, fmtVal, file, img, downloadName, note) {
 }
 
 window.resetResult = () => hide('cardResult');
+
+window.viewProcessResult = startOrig => openViewer({
+  src: lastResultUrl,
+  orig: document.getElementById('imgOrig').src,
+  name: document.getElementById('dlBtn').download,
+  startOrig,
+});
+
+window.viewBGResult = startOrig => openViewer({
+  src: lastBGUrls[0],
+  orig: document.getElementById('bgImgOrig').src,
+  name: document.getElementById('bgDlBtn').download,
+  transparent: true,
+  startOrig,
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ZOOM VIEWER — fit / 100% / 200%, flip original ⇄ result at the same size
+// ═══════════════════════════════════════════════════════════════
+const viewer = { src: null, orig: null, showOrig: false, zoom: 'fit', w: 0, h: 0, dragged: false };
+
+function openViewer({ src, orig, name, transparent = false, startOrig = false }) {
+  if (!src) return;
+  Object.assign(viewer, { src, orig: orig || null, showOrig: !!(startOrig && orig), zoom: 'fit', w: 0, h: 0 });
+  document.getElementById('vTitle').textContent = name || '';
+  const dl = document.getElementById('vDl');
+  dl.href = src; dl.download = name || 'image';
+  toggle('vCompare', !!orig);
+  document.getElementById('vImg').classList.toggle('checker-bg', transparent);
+  document.getElementById('vHint').textContent = orig
+    ? 'Click image to zoom · drag to move around · press O to flip original / result · Esc to close'
+    : 'Click image to zoom · drag to move around · Esc to close';
+  show('viewer');
+  document.body.style.overflow = 'hidden';
+  loadImg(src).then(img => {
+    viewer.w = img.naturalWidth; viewer.h = img.naturalHeight;
+    renderViewer();
+  }).catch(() => closeViewer());
+}
+
+window.closeViewer = () => {
+  hide('viewer');
+  document.body.style.overflow = '';
+  document.getElementById('vImg').removeAttribute('src');
+};
+
+function fitScale() {
+  const stage = document.getElementById('vStage');
+  return Math.min(1, (stage.clientWidth - 32) / viewer.w, (stage.clientHeight - 32) / viewer.h);
+}
+
+/** Re-renders at the current zoom, keeping the image point at (fx, fy) — fractions of its size — centered. */
+function renderViewer(fx = 0.5, fy = 0.5) {
+  if (!viewer.w) return;
+  const stage = document.getElementById('vStage');
+  const img = document.getElementById('vImg');
+  const scale = viewer.zoom === 'fit' ? fitScale() : viewer.zoom;
+  const src = viewer.showOrig ? viewer.orig : viewer.src;
+  if (img.getAttribute('src') !== src) img.src = src;
+  // Both versions render at the result's size so they line up when flipping.
+  img.style.width = `${Math.round(viewer.w * scale)}px`;
+  img.style.height = `${Math.round(viewer.h * scale)}px`;
+  stage.scrollLeft = fx * viewer.w * scale - stage.clientWidth / 2;
+  stage.scrollTop = fy * viewer.h * scale - stage.clientHeight / 2;
+
+  document.getElementById('viewer').classList.toggle('actual', viewer.zoom !== 'fit');
+  const tag = document.getElementById('vTag');
+  tag.textContent = viewer.showOrig ? 'Original' : 'Result';
+  tag.classList.toggle('orig', viewer.showOrig);
+  document.getElementById('vCompare').textContent = viewer.showOrig ? '⇄ Show result' : '⇄ Show original';
+  document.getElementById('vZoom').textContent =
+    viewer.zoom === 'fit' ? `🔍 Zoom ${nextZoom() * 100}%` : '🔍 Fit to screen';
+}
+
+const nextZoom = () => (fitScale() < 1 ? 1 : 2);
+
+function currentFocus() {
+  const stage = document.getElementById('vStage');
+  const img = document.getElementById('vImg');
+  return [
+    (stage.scrollLeft + stage.clientWidth / 2) / img.offsetWidth,
+    (stage.scrollTop + stage.clientHeight / 2) / img.offsetHeight,
+  ];
+}
+
+window.viewerToggleZoom = (fx, fy) => {
+  if (fx === undefined) [fx, fy] = viewer.zoom === 'fit' ? [0.5, 0.5] : currentFocus();
+  viewer.zoom = viewer.zoom === 'fit' ? nextZoom() : 'fit';
+  renderViewer(fx, fy);
+};
+
+window.viewerToggleCompare = () => {
+  if (!viewer.orig) return;
+  const focus = currentFocus();
+  viewer.showOrig = !viewer.showOrig;
+  renderViewer(...focus);
+};
+
+(() => {
+  const stage = document.getElementById('vStage');
+  const img = document.getElementById('vImg');
+  let drag = null;
+  img.addEventListener('click', e => {
+    if (viewer.dragged) return;
+    const r = img.getBoundingClientRect();
+    viewerToggleZoom((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
+  });
+  stage.addEventListener('pointerdown', e => {
+    viewer.dragged = false;
+    if (viewer.zoom === 'fit') return;
+    drag = { x: e.clientX, y: e.clientY, sl: stage.scrollLeft, st: stage.scrollTop };
+    document.getElementById('viewer').classList.add('dragging');
+  });
+  window.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (Math.abs(dx) + Math.abs(dy) > 4) viewer.dragged = true;
+    stage.scrollLeft = drag.sl - dx;
+    stage.scrollTop = drag.st - dy;
+  });
+  window.addEventListener('pointerup', () => {
+    drag = null;
+    document.getElementById('viewer').classList.remove('dragging');
+  });
+  stage.addEventListener('click', e => { if (e.target === stage && !viewer.dragged) closeViewer(); });
+  window.addEventListener('resize', () => {
+    if (!document.getElementById('viewer').classList.contains('hidden')) renderViewer(...currentFocus());
+  });
+  document.addEventListener('keydown', e => {
+    if (document.getElementById('viewer').classList.contains('hidden')) return;
+    if (e.key === 'Escape') closeViewer();
+    else if (e.key === 'o' || e.key === 'O') viewerToggleCompare();
+  });
+})();
 
 // ═══════════════════════════════════════════════════════════════
 // UTILITIES
