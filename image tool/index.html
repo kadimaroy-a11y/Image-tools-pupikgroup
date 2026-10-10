@@ -192,6 +192,9 @@
     .chk-row{display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-size:13px;font-weight:600;
       color:var(--text);text-transform:none;letter-spacing:normal;line-height:1.35;}
     .chk-row input{flex-shrink:0;margin-top:2px;width:18px;height:18px;accent-color:var(--accent);cursor:pointer;}
+    .proc-steps{margin:0 0 16px 20px;font-size:13px;line-height:1.7;color:var(--text);}
+    .proc-steps li::marker{color:var(--accent);font-weight:700;}
+    input.range{width:100%;accent-color:var(--accent);cursor:pointer;}
 
     @media(max-width:600px){
       .result-imgs,.two-col{grid-template-columns:1fr;}
@@ -219,6 +222,7 @@
   <button class="tab-btn" data-tab="compress"><span class="ticon">📦</span> Compress</button>
   <button class="tab-btn" data-tab="upscale"><span class="ticon">🔍</span> Upscale</button>
   <button class="tab-btn" data-tab="removebg"><span class="ticon">✂️</span> Remove BG</button>
+  <button class="tab-btn" data-tab="procedures"><span class="ticon">⚡</span> Procedures</button>
 </div>
 
 <main>
@@ -461,6 +465,37 @@
     </div>
   </div>
 
+  <!-- ═══════════════════════════════ PROCEDURES ═══════════════════════════════ -->
+  <div id="panelProcedures" class="panel hidden">
+    <div class="card">
+      <div class="card-title">Procedure — E-shop Images</div>
+      <div class="ai-strip">
+        <div class="ai-dot" id="eshopDot"></div>
+        <span id="eshopMsg">BiRefNet + Real-ESRGAN AI (free, runs on your device) — loads when you open this tab</span>
+      </div>
+      <ol class="proc-steps">
+        <li>Remove the background and replace it with pure white</li>
+        <li>Center the product in a 2048 × 2048 square with a minimal border — upscaled with AI when needed</li>
+        <li>Save as WebP</li>
+      </ol>
+      <div class="fields">
+        <div class="field">
+          <label for="eshopMargin">Border Around Product</label>
+          <input type="range" id="eshopMargin" class="range" min="0" max="15" step="1" value="5" oninput="onEshopMargin()">
+          <div class="hint ok" id="eshopMarginHint"></div>
+        </div>
+      </div>
+      <button class="btn-main" id="btnEshop" onclick="doEshop()" disabled>🛍️ Run E-shop Images</button>
+    </div>
+    <div class="card hidden" id="cardEshopResult">
+      <div class="card-title">E-shop Images</div>
+      <div class="batch-list" id="eshopBatchList"></div>
+      <div class="hidden" id="eshopZipRow" style="margin-top:12px;">
+        <button class="btn-dl" onclick="downloadBatchZip('eshop')">📦 Download All as ZIP</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ═══ PROCESSING (shared) ═══ -->
   <div class="card hidden" id="cardProcessing">
     <div class="card-title" id="procTitle">Processing</div>
@@ -518,7 +553,7 @@
 // VERSION — APP_BUILD is stamped by deploy.ps1 on every publish
 // ═══════════════════════════════════════════════════════════════
 const APP_VERSION = '2.1';
-const APP_BUILD = '2026-10-10 22:30';
+const APP_BUILD = '2026-10-10 23:02';
 {
   const local = APP_BUILD.includes('BUILD');
   const host = location.hostname;
@@ -567,16 +602,17 @@ let activeTab = 'convert';
 let lastResultUrl = null;
 let lastBGUrls = [];
 let job = null;           // AbortController of the running tool
-const batches = { convert: [], compress: [], upscale: [], removebg: [] };   // [{blob, name, url}]
+const batches = { convert: [], compress: [], upscale: [], removebg: [], eshop: [] };   // [{blob, name, url}]
 const ZIP_NAMES = {
   convert: 'converted_images.zip', compress: 'compressed_images.zip',
   upscale: 'upscaled_images.zip',  removebg: 'no_bg_images.zip',
+  eshop: 'eshop_images.zip',
 };
 
 // ═══════════════════════════════════════════════════════════════
 // TABS
 // ═══════════════════════════════════════════════════════════════
-const TAB_PANEL = { convert:'Convert', compress:'Compress', upscale:'Upscale', removebg:'RemoveBG' };
+const TAB_PANEL = { convert:'Convert', compress:'Compress', upscale:'Upscale', removebg:'RemoveBG', procedures:'Procedures' };
 
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -588,6 +624,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     refreshButtons();
     if (activeTab === 'upscale') ensureUpscaler().catch(() => {});
     if (activeTab === 'removebg') ensureBGEngine(document.getElementById('bgModel').value).catch(() => {});
+    if (activeTab === 'procedures') warmEshop();
   });
 });
 
@@ -702,7 +739,7 @@ window.clearFiles = () => {
   refreshButtons();
   hide('cardResult'); hide('cardProcessing');
   hide('cardConvertResult'); hide('cardCompressResult'); hide('cardUpscaleResult');
-  hide('cardBGResult'); hide('cardBGBatchResult');
+  hide('cardBGResult'); hide('cardBGBatchResult'); hide('cardEshopResult');
 };
 
 function refreshButtons() {
@@ -711,6 +748,7 @@ function refreshButtons() {
   setDis('btnCompress', !has);
   setDis('btnUpscale',  !has);
   setDis('btnRemoveBG', !has);
+  setDis('btnEshop',    !has);
 }
 
 function setDis(id, v) { const el = document.getElementById(id); if (el) el.disabled = v; }
@@ -1498,13 +1536,14 @@ function updateUpscaleHint() {
   el.textContent = `→ Output: ${w} × ${h} px  (${(w * h / 1e6).toFixed(2)} MP)${cap}${more}`;
 }
 
-/** Tiled 4× super-resolution; returns a canvas at exactly outW × outH. */
+/** Tiled 4× super-resolution of an image or canvas; returns a canvas at exactly outW × outH. */
 async function esrganUpscale(img, outW, outH, onTile, signal) {
   const { ort, session } = await ensureUpscaler();
   const S = 4, T = 384, PAD = 16, STEP = T - 2 * PAD;
-  const pre = Math.min(1, Math.sqrt(MAX_AI_OUT_PX / (img.naturalWidth * img.naturalHeight * S * S)));
-  const W = Math.max(1, Math.round(img.naturalWidth * pre));
-  const H = Math.max(1, Math.round(img.naturalHeight * pre));
+  const iw = img.naturalWidth ?? img.width, ih = img.naturalHeight ?? img.height;
+  const pre = Math.min(1, Math.sqrt(MAX_AI_OUT_PX / (iw * ih * S * S)));
+  const W = Math.max(1, Math.round(iw * pre));
+  const H = Math.max(1, Math.round(ih * pre));
 
   const srcCanvas = document.createElement('canvas');
   srcCanvas.width = W; srcCanvas.height = H;
@@ -1673,11 +1712,11 @@ window.doUpscale = runJob(async signal => {
 
 /** Last-resort fallback when no AI runtime can load: stepped resize + unsharp mask. */
 async function smartUpscale(img, targetW, targetH) {
+  let cw = img.naturalWidth ?? img.width, ch = img.naturalHeight ?? img.height;
   let canvas = document.createElement('canvas');
-  canvas.width = img.naturalWidth;
-  canvas.height = img.naturalHeight;
+  canvas.width = cw;
+  canvas.height = ch;
   canvas.getContext('2d').drawImage(img, 0, 0);
-  let cw = img.naturalWidth, ch = img.naturalHeight;
   while (cw < targetW || ch < targetH) {
     const sw = Math.min(cw * 2, targetW);
     const sh = Math.min(ch * 2, targetH);
@@ -1838,9 +1877,8 @@ function halfToFloat(h) {
   return out;
 }
 
-/** Scales the mask to the original size and applies it as the alpha channel. */
-function applyMask(img, mask, mw, mh) {
-  const W = img.naturalWidth, H = img.naturalHeight;
+/** The model mask smoothly scaled to W × H, as an opaque grey canvas (mask value in every colour channel). */
+function maskCanvas(mask, mw, mh, W, H) {
   const m = document.createElement('canvas');
   m.width = mw; m.height = mh;
   const mctx = m.getContext('2d');
@@ -1858,8 +1896,19 @@ function applyMask(img, mask, mw, mh) {
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(m, 0, 0, W, H);
   m.width = m.height = 0;
-  const alpha = ctx.getImageData(0, 0, W, H).data;
-  ctx.clearRect(0, 0, W, H);
+  return out;
+}
+
+/** Scales the mask to the original size and applies it as the alpha channel. */
+function applyMask(img, mask, mw, mh) {
+  const W = img.naturalWidth, H = img.naturalHeight;
+  const mc = maskCanvas(mask, mw, mh, W, H);
+  const alpha = mc.getContext('2d').getImageData(0, 0, W, H).data;
+  mc.width = mc.height = 0;
+
+  const out = document.createElement('canvas');
+  out.width = W; out.height = H;
+  const ctx = out.getContext('2d', { willReadFrequently: true });
   ctx.drawImage(img, 0, 0);
   const px = ctx.getImageData(0, 0, W, H);
   for (let i = 3; i < px.data.length; i += 4) px.data[i] = px.data[i] * alpha[i - 3] / 255;
@@ -1879,7 +1928,7 @@ async function buildBGOutput(cutout, fmtVal, fillColor) {
     ctx.drawImage(cutout, 0, 0);
   }
   try {
-    if (fmtVal === 'jpeg' || fmtVal === 'webp') return { blob: await encodeBGOutput(canvas, fmtVal), ext: extOf(fmtVal) };
+    if (fmtVal === 'jpeg' || fmtVal === 'webp') return { blob: await encodeCanvas(canvas, fmtVal), ext: extOf(fmtVal) };
     const png = await canvasToBlob(canvas, 'image/png');
     if (fmtVal !== 'svg') return { blob: png, ext: 'png' };
     const dataUrl = await new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(png); });
@@ -1891,15 +1940,15 @@ async function buildBGOutput(cutout, fmtVal, fillColor) {
   }
 }
 
-/** MozJPEG / WebP at 92% via the codec workers, falling back to the browser's own encoder. */
-async function encodeBGOutput(canvas, fmtVal) {
+/** MozJPEG / WebP via the codec workers, falling back to the browser's own encoder. */
+async function encodeCanvas(canvas, fmtVal, quality = 0.92) {
   try {
     const png = await canvasToBlob(canvas, 'image/png');
-    const { blob } = await runCodec('convert', { file: png, fmt: fmtVal, quality: 0.92 });
+    const { blob } = await runCodec('convert', { file: png, fmt: fmtVal, quality });
     return blob;
   } catch (err) {
     if (isAbort(err)) throw err;
-    return canvasToBlob(canvas, `image/${fmtVal}`, 0.92);
+    return canvasToBlob(canvas, `image/${fmtVal}`, quality);
   }
 }
 
@@ -1974,6 +2023,221 @@ function showBGResult(blob, name, origUrl) {
 }
 
 window.resetBG = () => { hide('cardBGResult'); };
+
+// ═══════════════════════════════════════════════════════════════
+// PROCEDURES — E-shop images: white background, centered 2048² square, WebP
+// ═══════════════════════════════════════════════════════════════
+const ESHOP_SIZE = 2048;
+const ESHOP_AI_MAX_IN = 1024;       // 4× of this already exceeds 2048, so larger crops are pre-shrunk to save time
+const ESHOP_PREFS_KEY = 'eshopPrefs.v1';
+const MASK_ON = 64;                 // mask value that counts as "product" when measuring the box
+
+/**
+ * Tight box around the product in photo pixels, or null if the mask is empty.
+ * Blobs under 1% of the largest one (dust, shadow remnants) are dropped on the
+ * low-res mask; the box is then measured exactly on the full-size mask.
+ */
+function productBox(mask, mw, mh, full, W, H) {
+  const label = new Int32Array(mw * mh);
+  const stack = new Int32Array(mw * mh);
+  const blobs = [];
+  for (let start = 0; start < mask.length; start++) {
+    if (mask[start] < MASK_ON || label[start]) continue;
+    const id = blobs.length + 1;
+    const b = { area: 0, x0: mw, y0: mh, x1: -1, y1: -1 };
+    let top = 0;
+    stack[top++] = start; label[start] = id;
+    while (top) {
+      const p = stack[--top], x = p % mw, y = (p - x) / mw;
+      b.area++;
+      if (x < b.x0) b.x0 = x; if (x > b.x1) b.x1 = x;
+      if (y < b.y0) b.y0 = y; if (y > b.y1) b.y1 = y;
+      if (x > 0      && !label[p - 1]  && mask[p - 1]  >= MASK_ON) { label[p - 1] = id;  stack[top++] = p - 1; }
+      if (x < mw - 1 && !label[p + 1]  && mask[p + 1]  >= MASK_ON) { label[p + 1] = id;  stack[top++] = p + 1; }
+      if (y > 0      && !label[p - mw] && mask[p - mw] >= MASK_ON) { label[p - mw] = id; stack[top++] = p - mw; }
+      if (y < mh - 1 && !label[p + mw] && mask[p + mw] >= MASK_ON) { label[p + mw] = id; stack[top++] = p + mw; }
+    }
+    blobs.push(b);
+  }
+  if (!blobs.length) return null;
+  const biggest = blobs.reduce((m, b) => Math.max(m, b.area), 0);
+  let x0 = mw, y0 = mh, x1 = -1, y1 = -1;
+  for (const b of blobs) {
+    if (b.area < biggest * 0.01) continue;
+    x0 = Math.min(x0, b.x0); y0 = Math.min(y0, b.y0);
+    x1 = Math.max(x1, b.x1); y1 = Math.max(y1, b.y1);
+  }
+
+  const sx = W / mw, sy = H / mh;
+  const rx0 = Math.max(0, Math.floor((x0 - 2) * sx)), rx1 = Math.min(W - 1, Math.ceil((x1 + 3) * sx));
+  const ry0 = Math.max(0, Math.floor((y0 - 2) * sy)), ry1 = Math.min(H - 1, Math.ceil((y1 + 3) * sy));
+  let bx0 = W, by0 = H, bx1 = -1, by1 = -1;
+  for (let y = ry0; y <= ry1; y++) {
+    const row = y * W;
+    for (let x = rx0; x <= rx1; x++) {
+      if (full[(row + x) * 4] < MASK_ON) continue;
+      if (x < bx0) bx0 = x; if (x > bx1) bx1 = x;
+      if (y < by0) by0 = y; if (y > by1) by1 = y;
+    }
+  }
+  return bx1 < 0 ? null : { x: bx0, y: by0, w: bx1 - bx0 + 1, h: by1 - by0 + 1 };
+}
+
+/**
+ * Centers the product in a square with `margin` (fraction per side) around its longest side,
+ * upscales the photo crop with Real-ESRGAN when it is smaller than 2048, and composites it on
+ * pure white through the separately scaled mask so edges stay clean and the background is #FFFFFF.
+ */
+async function eshopSquare(img, maskC, box, margin, upscale, onTile, signal) {
+  const side = Math.max(1, Math.ceil(Math.max(box.w, box.h) / (1 - 2 * margin)));
+  const sqX = box.x + box.w / 2 - side / 2;
+  const sqY = box.y + box.h / 2 - side / 2;
+
+  const crop = document.createElement('canvas');
+  crop.width = crop.height = side;
+  const cctx = crop.getContext('2d');
+  cctx.fillStyle = '#ffffff';
+  cctx.fillRect(0, 0, side, side);
+  cctx.drawImage(img, -sqX, -sqY);
+
+  const mcrop = document.createElement('canvas');
+  mcrop.width = mcrop.height = side;
+  const mctx = mcrop.getContext('2d');
+  mctx.fillStyle = '#000000';
+  mctx.fillRect(0, 0, side, side);
+  mctx.drawImage(maskC, -sqX, -sqY);
+
+  let rgb;
+  if (side < ESHOP_SIZE && upscale) {
+    const aiIn = side > ESHOP_AI_MAX_IN ? finishCanvas(crop, ESHOP_AI_MAX_IN, ESHOP_AI_MAX_IN) : crop;
+    const big = await esrganUpscale(aiIn, ESHOP_SIZE, ESHOP_SIZE, onTile, signal);
+    if (aiIn !== crop) aiIn.width = aiIn.height = 0;
+    rgb = finishCanvas(big, ESHOP_SIZE, ESHOP_SIZE);
+    if (rgb !== big) big.width = big.height = 0;
+  } else if (side < ESHOP_SIZE) {
+    rgb = finishCanvas(await smartUpscale(crop, ESHOP_SIZE, ESHOP_SIZE), ESHOP_SIZE, ESHOP_SIZE);
+  } else {
+    rgb = finishCanvas(crop, ESHOP_SIZE, ESHOP_SIZE);
+  }
+  if (rgb !== crop) crop.width = crop.height = 0;
+
+  const m = finishCanvas(mcrop, ESHOP_SIZE, ESHOP_SIZE);
+  const md = m.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, ESHOP_SIZE, ESHOP_SIZE).data;
+  if (m !== mcrop) m.width = m.height = 0;
+  mcrop.width = mcrop.height = 0;
+
+  const ctx = rgb.getContext('2d', { willReadFrequently: true });
+  const px = ctx.getImageData(0, 0, ESHOP_SIZE, ESHOP_SIZE);
+  const d = px.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const a = md[i] / 255, w = 255 * (1 - a);
+    d[i] = d[i] * a + w;
+    d[i + 1] = d[i + 1] * a + w;
+    d[i + 2] = d[i + 2] * a + w;
+    d[i + 3] = 255;
+  }
+  ctx.putImageData(px, 0, 0);
+  return { canvas: rgb, side };
+}
+
+function eshopMargin() { return parseInt(document.getElementById('eshopMargin').value, 10) / 100; }
+
+window.onEshopMargin = () => {
+  const pct = Math.round(eshopMargin() * 100);
+  document.getElementById('eshopMarginHint').textContent =
+    `${pct}% white border per side — the product fills ~${100 - 2 * pct}% of the 2048 × 2048 frame`;
+  try { localStorage.setItem(ESHOP_PREFS_KEY, JSON.stringify({ margin: pct })); } catch {}
+};
+
+try {
+  const saved = JSON.parse(localStorage.getItem(ESHOP_PREFS_KEY) || 'null');
+  if (Number.isFinite(saved?.margin)) document.getElementById('eshopMargin').value = Math.min(15, Math.max(0, saved.margin));
+} catch {}
+onEshopMargin();
+
+function warmEshop() {
+  setAiStrip('eshopDot', 'eshopMsg', 'loading', 'Loading AI models — BiRefNet background removal + Real-ESRGAN upscaler (one-time download)…');
+  Promise.all([ensureBGEngine('quality'), ensureUpscaler()])
+    .then(([, up]) => {
+      const gpu = bgDevices.quality === 'webgpu' && up.device === 'webgpu';
+      setAiStrip('eshopDot', 'eshopMsg', gpu ? 'ready' : 'warn', `BiRefNet + Real-ESRGAN ready — ${deviceLabel(gpu ? 'webgpu' : 'wasm')}`);
+    })
+    .catch(() => setAiStrip('eshopDot', 'eshopMsg', 'err', 'An AI model failed to load — check your connection and try again'));
+}
+
+window.doEshop = runJob(async signal => {
+  if (!files.length) return;
+  const margin = eshopMargin();
+
+  resetBatch('eshop');
+  hide('cardEshopResult');
+  beginJob('E-shop Images');
+  progress(1, 'Loading BiRefNet background removal model…');
+
+  let run;
+  try { run = await untilAborted(ensureBGEngine('quality'), signal); }
+  catch (err) {
+    hide('cardProcessing');
+    if (!isAbort(err)) alert('Could not load the background removal model. Check your connection and try again.');
+    return;
+  }
+  progress(2, 'Loading Real-ESRGAN upscaler…');
+  let upscale = true;
+  try { await untilAborted(ensureUpscaler(), signal); }
+  catch (err) {
+    if (isAbort(err)) return;
+    upscale = false;
+  }
+
+  const n = files.length;
+  const rows = [];
+  let stopped = 0;
+  for (let i = 0; i < n; i++) {
+    if (signal.aborted) { stopped = n - i; break; }
+    const { file, img, url: thumbUrl } = files[i];
+    const outName = `${baseName(file)}_eshop.webp`;
+    const who = n > 1 ? `${i + 1}/${n} ${file.name}` : file.name;
+    const at = f => ((i + f) / n) * 98 + 1;
+    markThumb(i, 'processing');
+    progress(at(0), `Step 1/3 — Removing background: ${who}…`);
+    await tick();
+    try {
+      const { mask, mw, mh } = await run(file);
+      signal.throwIfAborted();
+      const W = img.naturalWidth, H = img.naturalHeight;
+      const maskC = maskCanvas(mask, mw, mh, W, H);
+      const full = maskC.getContext('2d').getImageData(0, 0, W, H).data;
+      const found = productBox(mask, mw, mh, full, W, H);
+      const box = found || { x: 0, y: 0, w: W, h: H };
+
+      progress(at(0.3), `Step 2/3 — Centering and upscaling: ${who}…`);
+      await tick();
+      const { canvas, side } = await eshopSquare(img, maskC, box, margin, upscale,
+        (d, t) => progress(at(0.3 + 0.6 * d / t), `Step 2/3 — Upscaling ${who} — tile ${d}/${t}`), signal);
+      maskC.width = maskC.height = 0;
+
+      progress(at(0.92), `Step 3/3 — Saving WebP: ${who}…`);
+      const blob = await encodeCanvas(canvas, 'webp', 0.9);
+      canvas.width = canvas.height = 0;
+      markThumb(i, 'done');
+
+      const notes = [];
+      if (!found) notes.push('no product detected, whole photo used');
+      if (side < ESHOP_SIZE / 4) notes.push('low-resolution source');
+      const { url, name } = addToBatch('eshop', blob, outName);
+      rows.push(batchRow(thumbUrl, name,
+        `${W}×${H} → ${ESHOP_SIZE}×${ESHOP_SIZE} · ${fmt(blob.size)} · WEBP${notes.length ? ` · ⚠ ${notes.join(', ')}` : ''}`, url));
+    } catch (err) {
+      if (isAbort(err)) { markThumb(i, null); stopped = n - i; break; }
+      console.error('E-shop procedure failed:', err);
+      markThumb(i, 'failed');
+      rows.push(batchRow(thumbUrl, outName, `Failed: ${esc(err.message || 'unknown error')}`, null));
+    }
+  }
+
+  progress(100, 'Done!');
+  endBatch('eshop', 'cardEshopResult', rows, stopped);
+});
 
 // ═══════════════════════════════════════════════════════════════
 // SHARED: Show compress/upscale single-file result
