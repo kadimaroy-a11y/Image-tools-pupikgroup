@@ -4,9 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Image Tools</title>
-  <!-- TF.js — needed if UpscalerJS AI model loads successfully -->
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
-  <!-- JSZip — for batch ZIP download in Convert tab -->
+  <!-- JSZip — batch ZIP downloads -->
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <style>
     :root {
@@ -69,6 +67,8 @@
       color:#fff;border-radius:4px;padding:0 5px;font-size:10px;font-weight:700;}
     .file-thumb.processing::after{content:'…';position:absolute;top:3px;left:3px;background:rgba(79,126,248,.85);
       color:#fff;border-radius:4px;padding:0 5px;font-size:10px;font-weight:700;}
+    .file-thumb.failed::after{content:'!';position:absolute;top:3px;left:3px;background:rgba(239,68,68,.9);
+      color:#fff;border-radius:4px;padding:0 6px;font-size:10px;font-weight:700;}
 
     /* ── Form Fields ── */
     .fields{display:flex;flex-direction:column;gap:14px;}
@@ -130,8 +130,9 @@
     .badge-down{background:rgba(34,197,94,.14);color:var(--green);}
     .badge-up{background:rgba(79,126,248,.14);color:var(--accent);}
     .badge-neutral{background:var(--sur2);color:var(--text2);}
+    .badge-warn{background:rgba(245,158,11,.14);color:var(--yellow);margin-left:6px;}
 
-    /* ── Convert batch list ── */
+    /* ── Batch result list ── */
     .batch-list{display:flex;flex-direction:column;gap:8px;}
     .batch-item{display:flex;align-items:center;gap:11px;background:var(--sur2);
       border-radius:8px;padding:9px 13px;border:1px solid var(--border);}
@@ -139,15 +140,17 @@
     .batch-item .bi-info{flex:1;min-width:0;}
     .batch-item .bi-name{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
     .batch-item .bi-size{font-size:11px;color:var(--text2);}
+    .batch-item.failed .bi-size{color:var(--red);}
     .batch-item a.dl-link{font-size:12px;color:var(--accent);text-decoration:none;white-space:nowrap;font-weight:600;}
     .batch-item a.dl-link:hover{text-decoration:underline;}
 
-    /* ── AI status strip ── */
+    /* ── Engine status strip ── */
     .ai-strip{display:flex;align-items:center;gap:8px;background:rgba(168,85,247,.07);
       border:1px solid rgba(168,85,247,.2);border-radius:8px;padding:9px 13px;margin-bottom:14px;font-size:12px;}
     .ai-dot{width:8px;height:8px;border-radius:50%;background:var(--text2);flex-shrink:0;}
     .ai-dot.ready{background:var(--green);}
     .ai-dot.loading{background:var(--yellow);animation:pulse 1s infinite;}
+    .ai-dot.warn{background:var(--yellow);}
     .ai-dot.err{background:var(--red);}
     @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.3;}}
 
@@ -157,6 +160,9 @@
     .sep{border:none;border-top:1px solid var(--border);margin:4px 0;}
     .info-note{font-size:12px;color:var(--text2);line-height:1.5;padding:10px 13px;
       background:var(--sur2);border-radius:8px;border-left:3px solid var(--accent);}
+    .chk-row{display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-size:13px;font-weight:600;
+      color:var(--text);text-transform:none;letter-spacing:normal;line-height:1.35;}
+    .chk-row input{flex-shrink:0;margin-top:2px;width:18px;height:18px;accent-color:var(--accent);cursor:pointer;}
 
     @media(max-width:600px){
       .result-imgs,.two-col{grid-template-columns:1fr;}
@@ -171,7 +177,7 @@
   <div class="hicon">🛠️</div>
   <div>
     <h1>Image Tools</h1>
-    <p>Convert · Compress · Upscale · Remove Background — 100% in your browser, nothing uploaded</p>
+    <p>Convert · Compress · Upscale · Remove Background — 100% in your browser, nothing uploaded, free</p>
   </div>
 </header>
 
@@ -187,23 +193,26 @@
   <!-- ═══ DROP ZONE ═══ -->
   <div class="upload-zone" id="uploadZone">
     <div class="uz-icon">📁</div>
-    <h2 id="uzTitle">Drop images here</h2>
+    <h2 id="uzTitle">Drop images here (multiple allowed)</h2>
     <p id="uzSub">or click to browse</p>
     <div style="margin-top:10px" id="uzFmts">
       <span class="fmt-tag">JPG</span>
       <span class="fmt-tag">PNG</span>
       <span class="fmt-tag">WebP</span>
+      <span class="fmt-tag">AVIF</span>
+      <span class="fmt-tag">HEIC</span>
       <span class="fmt-tag">GIF</span>
       <span class="fmt-tag">BMP</span>
     </div>
-    <input type="file" id="fileInput" accept=".jpg,.jpeg,.png,.webp,.gif,.bmp,image/jpeg,image/png,image/webp,image/gif,image/bmp" multiple>
+    <input type="file" id="fileInput" multiple
+      accept=".jpg,.jpeg,.png,.webp,.avif,.heic,.heif,.gif,.bmp,image/jpeg,image/png,image/webp,image/avif,image/heic,image/heif,image/gif,image/bmp">
     <div class="reject-bar" id="rejectBar"></div>
   </div>
 
   <!-- ═══ FILE LIST ═══ -->
   <div class="card hidden" id="cardFiles">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-      <div class="card-title" style="margin-bottom:0">Loaded Files</div>
+      <div class="card-title" style="margin-bottom:0" id="filesTitle">Loaded Files</div>
       <button class="btn-sec" style="padding:5px 13px;font-size:11px;" onclick="clearFiles()">Clear All</button>
     </div>
     <div class="file-list" id="fileList"></div>
@@ -213,17 +222,23 @@
   <div id="panelConvert" class="panel">
     <div class="card">
       <div class="card-title">Convert Format</div>
+      <div class="ai-strip">
+        <div class="ai-dot codec-dot"></div>
+        <span class="codec-msg">Engine: MozJPEG · WebP · AVIF · OxiPNG (WebAssembly, background workers)</span>
+      </div>
       <div class="fields">
         <div class="field">
           <label>Convert To</label>
-          <select id="cvtFmt" class="full">
-            <option value="jpeg">JPEG (.jpg) — best for photos</option>
-            <option value="png">PNG (.png) — lossless, supports transparency</option>
+          <select id="cvtFmt" class="full" onchange="updateConvertFmtUI()">
+            <option value="jpeg">JPEG (.jpg) — best for photos (transparent areas → white)</option>
+            <option value="png">PNG (.png) — lossless, supports transparency (OxiPNG optimized)</option>
             <option value="webp">WebP (.webp) — modern, small &amp; efficient</option>
+            <option value="avif">AVIF (.avif) — smallest files, slower to encode</option>
+            <option value="pdf">PDF (.pdf) — one page per image, A4</option>
           </select>
         </div>
-        <div class="field">
-          <label>Quality (JPEG / WebP only)</label>
+        <div class="field" id="cvtQualityWrap">
+          <label>Quality (JPEG / WebP / AVIF / PDF pages)</label>
           <select id="cvtQuality" class="full">
             <option value="1.0">Maximum (100%)</option>
             <option value="0.92" selected>High (92%) — recommended</option>
@@ -231,15 +246,23 @@
             <option value="0.65">Medium (65%)</option>
             <option value="0.50">Low (50%)</option>
           </select>
+          <div class="hint" id="cvtJpegHint">JPEG and PDF embed photos as JPEG: transparent pixels are composited on <strong>white</strong> so edges don’t turn black.</div>
+        </div>
+        <div class="field hidden" id="cvtPdfCombineWrap">
+          <label class="chk-row">
+            <input type="checkbox" id="cvtPdfCombine" checked>
+            <span>Combine all images into one PDF</span>
+          </label>
+          <div class="hint">If unchecked, each image becomes its own PDF. With multiple files, use <strong>Download All as ZIP</strong>.</div>
         </div>
       </div>
       <button class="btn-main" id="btnConvert" onclick="doConvert()" disabled>🔄 Convert Files</button>
     </div>
     <div class="card hidden" id="cardConvertResult">
       <div class="card-title">Converted Files</div>
-      <div class="batch-list" id="batchList"></div>
-      <div class="hidden" id="zipRow" style="margin-top:12px;">
-        <button class="btn-dl" onclick="downloadZip()">📦 Download All as ZIP</button>
+      <div class="batch-list" id="convertBatchList"></div>
+      <div class="hidden" id="convertZipRow" style="margin-top:12px;">
+        <button class="btn-dl" onclick="downloadBatchZip('convert')">📦 Download All as ZIP</button>
       </div>
     </div>
   </div>
@@ -248,6 +271,10 @@
   <div id="panelCompress" class="panel hidden">
     <div class="card">
       <div class="card-title">Compress to Target Size</div>
+      <div class="ai-strip">
+        <div class="ai-dot codec-dot"></div>
+        <span class="codec-msg">Engine: MozJPEG · WebP · AVIF · OxiPNG (WebAssembly, background workers)</span>
+      </div>
       <div class="fields">
         <div class="field">
           <label>Target File Size</label>
@@ -263,9 +290,10 @@
         <div class="field">
           <label>Output Format</label>
           <select id="fmtCompress" class="full">
-            <option value="jpeg">JPEG — best compression ratio</option>
+            <option value="jpeg">JPEG — best compatibility</option>
             <option value="webp">WebP — modern &amp; efficient</option>
-            <option value="png">PNG — lossless (size reduction limited)</option>
+            <option value="avif">AVIF — smallest files (slower)</option>
+            <option value="png">PNG — lossless optimize first, then resize if needed</option>
           </select>
         </div>
         <div class="field">
@@ -273,11 +301,18 @@
           <select id="strategyCompress" class="full">
             <option value="quality">Quality reduction only (keep dimensions)</option>
             <option value="both" selected>Quality + resize if needed</option>
-            <option value="resize">Resize only (keep max quality)</option>
+            <option value="resize">Resize only (keep high quality)</option>
           </select>
         </div>
       </div>
-      <button class="btn-main" id="btnCompress" onclick="doCompress()" disabled>📦 Compress Image</button>
+      <button class="btn-main" id="btnCompress" onclick="doCompress()" disabled>📦 Compress Files</button>
+    </div>
+    <div class="card hidden" id="cardCompressResult">
+      <div class="card-title">Compressed Files</div>
+      <div class="batch-list" id="compressBatchList"></div>
+      <div class="hidden" id="compressZipRow" style="margin-top:12px;">
+        <button class="btn-dl" onclick="downloadBatchZip('compress')">📦 Download All as ZIP</button>
+      </div>
     </div>
   </div>
 
@@ -285,9 +320,9 @@
   <div id="panelUpscale" class="panel hidden">
     <div class="card">
       <div class="card-title">Upscale Resolution</div>
-      <div class="ai-strip" id="upscaleStrip">
-        <div class="ai-dot loading" id="upscaleDot"></div>
-        <span id="upscaleMsg">AI model loading… (UpscalerJS + ESRGAN via CDN)</span>
+      <div class="ai-strip">
+        <div class="ai-dot" id="upscaleDot"></div>
+        <span id="upscaleMsg">Real-ESRGAN x4 AI (free, runs on your device) — loads when you open this tab</span>
       </div>
       <div class="fields">
         <div class="field">
@@ -303,7 +338,7 @@
         <div class="field hidden" id="fieldCustomW">
           <label>Target Width (px)</label>
           <input type="number" id="customWidth" min="1" placeholder="e.g. 3840" style="width:100%;" oninput="updateUpscaleHint()">
-          <div class="hint">Height scales proportionally.</div>
+          <div class="hint">Height scales proportionally for each image.</div>
         </div>
         <div class="field">
           <label>Output Format</label>
@@ -314,26 +349,15 @@
           </select>
         </div>
         <div class="hint ok" id="hintUpscale"></div>
-        <div class="field">
-          <label>Cloud AI Provider <span style="font-size:10px;font-weight:400;color:var(--text2)">(optional — for real AI upscaling)</span></label>
-          <select id="upscaleProvider" class="full" onchange="onProviderChange()">
-            <option value="clipdrop" selected>ClipDrop — 100 free/day, instant results</option>
-            <option value="replicate">Replicate — pay-per-use, Real-ESRGAN</option>
-            <option value="none">No API — use smart canvas upscaling</option>
-          </select>
-        </div>
-        <div class="field" id="fieldClipdropKey">
-          <label>ClipDrop API Key</label>
-          <input type="text" id="clipdropKey" class="full" placeholder="Your ClipDrop API key" oninput="onApiKeyInput()" autocomplete="off" spellcheck="false">
-          <div class="hint" id="clipdropHint">100 free upscales/day. <a href="https://clipdrop.co/apis" target="_blank" style="color:var(--accent)">Get a free key at clipdrop.co/apis</a></div>
-        </div>
-        <div class="field hidden" id="fieldReplicateKey">
-          <label>Replicate API Key</label>
-          <input type="text" id="replicateKey" class="full" placeholder="r8_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" oninput="onApiKeyInput()" autocomplete="off" spellcheck="false">
-          <div class="hint" id="replicateHint">~$0.002/image after free trial. <a href="https://replicate.com" target="_blank" style="color:var(--accent)">Get a key at replicate.com</a></div>
-        </div>
       </div>
-      <button class="btn-main" id="btnUpscale" onclick="doUpscale()" disabled>🔍 Upscale Image</button>
+      <button class="btn-main" id="btnUpscale" onclick="doUpscale()" disabled>🔍 Upscale Images</button>
+    </div>
+    <div class="card hidden" id="cardUpscaleResult">
+      <div class="card-title">Upscaled Files</div>
+      <div class="batch-list" id="upscaleBatchList"></div>
+      <div class="hidden" id="upscaleZipRow" style="margin-top:12px;">
+        <button class="btn-dl" onclick="downloadBatchZip('upscale')">📦 Download All as ZIP</button>
+      </div>
     </div>
   </div>
 
@@ -341,11 +365,18 @@
   <div id="panelRemoveBG" class="panel hidden">
     <div class="card">
       <div class="card-title">Remove Background</div>
-      <div class="ai-strip" id="bgStrip">
-        <div class="ai-dot loading" id="bgDot"></div>
-        <span id="bgMsg">Uses your ClipDrop key if set — otherwise falls back to browser AI model</span>
+      <div class="ai-strip">
+        <div class="ai-dot" id="bgDot"></div>
+        <span id="bgMsg">Background removal AI (free, runs on your device) — loads when you open this tab</span>
       </div>
       <div class="fields">
+        <div class="field">
+          <label>AI Model</label>
+          <select id="bgModel" class="full" onchange="onBGModelChange()">
+            <option value="quality" selected>Best quality — BiRefNet (~94 MB, one-time download)</option>
+            <option value="fast">Fast — ISNet (~42 MB, one-time download)</option>
+          </select>
+        </div>
         <div class="field">
           <label>Download Format</label>
           <select id="bgFmt" class="full">
@@ -383,6 +414,14 @@
         <button class="btn-sec" onclick="resetBG()">↩ New Image</button>
       </div>
     </div>
+
+    <div class="card hidden" id="cardBGBatchResult">
+      <div class="card-title">Backgrounds Removed</div>
+      <div class="batch-list" id="removebgBatchList"></div>
+      <div class="hidden" id="removebgZipRow" style="margin-top:12px;">
+        <button class="btn-dl" onclick="downloadBatchZip('removebg')">📦 Download All as ZIP</button>
+      </div>
+    </div>
   </div>
 
   <!-- ═══ PROCESSING (shared) ═══ -->
@@ -392,7 +431,7 @@
     <div class="hint" id="progMsg">Starting…</div>
   </div>
 
-  <!-- ═══ RESULT (compress / upscale shared) ═══ -->
+  <!-- ═══ RESULT (compress / upscale single file) ═══ -->
   <div class="card hidden" id="cardResult">
     <div class="card-title">Result</div>
     <div class="result-imgs">
@@ -421,13 +460,42 @@
 
 <script type="module">
 // ═══════════════════════════════════════════════════════════════
+// ENGINES (all free, all run on the user's device)
+// ═══════════════════════════════════════════════════════════════
+const JSQUASH = {
+  jpeg:   'https://esm.sh/@jsquash/jpeg@1.6.0/encode',
+  webp:   'https://esm.sh/@jsquash/webp@1.5.0/encode',
+  avif:   'https://esm.sh/@jsquash/avif@2.1.1/encode',
+  oxipng: 'https://esm.sh/@jsquash/oxipng@2.3.0/optimise',
+};
+const ORT_BASE    = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/';
+const ESRGAN_URL  = 'https://huggingface.co/Saimon8420/realesr-general-x4v3-web/resolve/main/realesr-general-x4v3-static384.onnx';
+const TJS_URL     = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.1';
+const HEIC_URL    = 'https://cdn.jsdelivr.net/npm/heic-to@1.6.5/dist/heic-to.js';
+const JSPDF_URL   = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js';
+const MODEL_CACHE = 'pupik-image-tools-models-v1';
+// Upscaled canvases above this pixel count crash mobile Safari and exhaust GPU memory
+const MAX_AI_OUT_PX = 36e6;
+const MAX_UPSCALE_OUT_PX = 64e6;
+const MAX_CANVAS_SIDE = 16384;
+
+const BG_MODELS = {
+  quality: { id: 'studioludens/birefnet-lite-512', kind: 'birefnet', label: 'BiRefNet', size: '~94 MB' },
+  fast:    { id: 'xrds/isnet-general-onnx-int8',  kind: 'isnet',    label: 'ISNet',    size: '~42 MB' },
+};
+
+// ═══════════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════════
 let files = [];           // [{file, img, url}]
 let activeTab = 'convert';
-let upscaler = null;
-let bgRemoveFn = null;
-let convertBlobs = [];    // [{blob, name, url}] — for ZIP
+let lastResultUrl = null;
+let lastBGUrls = [];
+const batches = { convert: [], compress: [], upscale: [], removebg: [] };   // [{blob, name, url}]
+const ZIP_NAMES = {
+  convert: 'converted_images.zip', compress: 'compressed_images.zip',
+  upscale: 'upscaled_images.zip',  removebg: 'no_bg_images.zip',
+};
 
 // ═══════════════════════════════════════════════════════════════
 // TABS
@@ -441,29 +509,23 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     document.querySelectorAll('.panel').forEach(p => p.classList.add('hidden'));
     show('panel' + TAB_PANEL[activeTab]);
     hide('cardResult'); hide('cardProcessing');
-    syncUploadZone();
     refreshButtons();
-    // Lazy-init AI on first visit to tab
-    if (activeTab === 'upscale' && !upscaler) initUpscaler();
-    if (activeTab === 'removebg') updateBGStrip();
+    if (activeTab === 'upscale') ensureUpscaler().catch(() => {});
+    if (activeTab === 'removebg') ensureBGEngine(document.getElementById('bgModel').value).catch(() => {});
   });
 });
-
-function syncUploadZone() {
-  const multi = activeTab === 'convert';
-  document.getElementById('fileInput').multiple = multi;
-  document.getElementById('uzTitle').textContent = multi ? 'Drop images here (multiple allowed)' : 'Drop a single image here';
-  document.getElementById('uzSub').textContent = 'or click to browse';
-}
 
 // ═══════════════════════════════════════════════════════════════
 // UPLOAD / DROP
 // ═══════════════════════════════════════════════════════════════
-const SUPPORTED = new Set(['image/jpeg','image/png','image/webp','image/gif','image/bmp']);
-const SUPPORTED_EXT = new Set(['jpg','jpeg','png','webp','gif','bmp']);
+const SUPPORTED = new Set(['image/jpeg','image/png','image/webp','image/avif','image/heic','image/heif','image/gif','image/bmp']);
+const SUPPORTED_EXT = new Set(['jpg','jpeg','png','webp','avif','heic','heif','gif','bmp']);
 
 function isSupportedFile(f) {
   return SUPPORTED.has(f.type.toLowerCase()) || SUPPORTED_EXT.has(f.name.split('.').pop().toLowerCase());
+}
+function isHeicFile(f) {
+  return /image\/hei[cf]/i.test(f.type) || /\.(heic|heif)$/i.test(f.name);
 }
 
 const zone = document.getElementById('uploadZone');
@@ -480,11 +542,13 @@ zone.addEventListener('drop', async e => {
   const good = all.filter(isSupportedFile);
   const bad  = all.filter(f => !isSupportedFile(f));
   if (bad.length) flashReject(`${bad.length} unsupported file(s) skipped (${bad.map(f=>f.name).join(', ')})`);
-  if (good.length) await addFiles(activeTab === 'convert' ? good : [good[0]]);
+  if (good.length) await addFiles(good);
 });
 finput.addEventListener('change', async () => {
-  if (finput.files.length) await addFiles(Array.from(finput.files));
+  if (!finput.files.length) return;
+  const picked = Array.from(finput.files);
   finput.value = '';
+  await addFiles(picked);
 });
 
 function flashReject(msg) {
@@ -493,19 +557,28 @@ function flashReject(msg) {
   setTimeout(() => el.classList.remove('show'), 3000);
 }
 
+async function heicToJpeg(file) {
+  const { heicTo } = await import(HEIC_URL);
+  const blob = await heicTo({ blob: file, type: 'image/jpeg', quality: 0.95 });
+  return new File([blob], file.name.replace(/\.(heic|heif)$/i, '') + '.jpg', { type: 'image/jpeg' });
+}
+
 async function addFiles(newFiles) {
-  if (activeTab !== 'convert') {
-    files.forEach(f => URL.revokeObjectURL(f.url));
-    files = [];
-    hide('cardBGResult'); hide('cardResult'); hide('cardConvertResult');
-  }
-  for (const file of newFiles) {
+  const failed = [];
+  for (let file of newFiles) {
+    if (isHeicFile(file)) {
+      document.getElementById('uzSub').textContent = `Converting ${file.name} from HEIC…`;
+      try { file = await heicToJpeg(file); }
+      catch (e) { console.warn('HEIC conversion failed:', e); failed.push(file.name); continue; }
+    }
     const url = URL.createObjectURL(file);
     try {
       const img = await loadImg(url);
       files.push({ file, img, url });
-    } catch { URL.revokeObjectURL(url); }
+    } catch { URL.revokeObjectURL(url); failed.push(file.name); }
   }
+  document.getElementById('uzSub').textContent = 'or click to browse';
+  if (failed.length) flashReject(`Could not read: ${failed.join(', ')}`);
   renderFileList();
   refreshButtons();
   updateCompressHint();
@@ -524,6 +597,9 @@ function loadImg(src) {
 function renderFileList() {
   if (!files.length) { hide('cardFiles'); return; }
   show('cardFiles');
+  const n = files.length;
+  document.getElementById('filesTitle').textContent =
+    n === 1 ? 'Loaded Files (1)' : `Loaded Files (${n})`;
   document.getElementById('fileList').innerHTML = files.map((f, i) => `
     <div class="file-thumb" id="ft${i}">
       <img src="${f.url}" alt="">
@@ -538,15 +614,19 @@ window.removeFile = i => {
   files.splice(i, 1);
   renderFileList();
   refreshButtons();
+  updateCompressHint();
+  updateUpscaleHint();
 };
 
 window.clearFiles = () => {
   files.forEach(f => URL.revokeObjectURL(f.url));
   files = [];
+  Object.keys(batches).forEach(resetBatch);
   renderFileList();
   refreshButtons();
   hide('cardResult'); hide('cardProcessing');
-  hide('cardConvertResult'); hide('cardBGResult');
+  hide('cardConvertResult'); hide('cardCompressResult'); hide('cardUpscaleResult');
+  hide('cardBGResult'); hide('cardBGBatchResult');
 };
 
 function refreshButtons() {
@@ -560,140 +640,442 @@ function refreshButtons() {
 function setDis(id, v) { const el = document.getElementById(id); if (el) el.disabled = v; }
 
 // ═══════════════════════════════════════════════════════════════
-// AI — UPSCALER (UpscalerJS + ESRGAN)
+// BATCH RESULTS (shared by all four tools)
 // ═══════════════════════════════════════════════════════════════
-async function initUpscaler() {
-  setAiStrip('upscaleDot','upscaleMsg','loading','Loading UpscalerJS + ESRGAN model from CDN…');
-  try {
-    await loadScript('https://cdn.jsdelivr.net/npm/upscaler@1.0.0-beta.18/dist/browser/umd/upscaler.min.js');
-    upscaler = new window.Upscaler({
-      model: {
-        path: 'https://cdn.jsdelivr.net/npm/@upscalerjs/esrgan-slim@0.12.7/dist/browser/2x/model.json',
-        scale: 2,
+function resetBatch(key) {
+  batches[key].forEach(b => URL.revokeObjectURL(b.url));
+  batches[key] = [];
+}
+
+function addToBatch(key, blob, name) {
+  const taken = new Set(batches[key].map(b => b.name));
+  let unique = name, n = 2;
+  while (taken.has(unique)) unique = name.replace(/(\.[^.]+)?$/, ` (${n++})$1`);
+  const url = URL.createObjectURL(blob);
+  batches[key].push({ blob, name: unique, url });
+  return { url, name: unique };
+}
+
+function batchRow(thumbUrl, name, info, url) {
+  return `
+    <div class="batch-item${url ? '' : ' failed'}">
+      <img src="${thumbUrl}" alt="">
+      <div class="bi-info">
+        <div class="bi-name" title="${esc(name)}">${esc(name)}</div>
+        <div class="bi-size">${info}</div>
+      </div>
+      ${url ? `<a class="dl-link" href="${url}" download="${esc(name)}">↓ Save</a>` : ''}
+    </div>`;
+}
+
+function showBatch(key, cardId, rows) {
+  document.getElementById(key + 'BatchList').innerHTML = rows.join('');
+  toggle(key + 'ZipRow', batches[key].length > 1);
+  show(cardId);
+}
+
+window.downloadBatchZip = async key => {
+  if (!window.JSZip) { alert('JSZip not loaded — refresh and try again.'); return; }
+  const zip = new JSZip();
+  batches[key].forEach(({ blob, name }) => zip.file(name, blob));
+  const zb = await zip.generateAsync({ type: 'blob' });
+  triggerDownload(URL.createObjectURL(zb), ZIP_NAMES[key]);
+};
+
+function sizeChange(before, after) {
+  const sign = after < before ? '▼' : after > before ? '▲' : '=';
+  return `${fmt(before)} ${sign} ${fmt(after)}`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CODEC WORKERS — jSquash (MozJPEG / libwebp / libavif / OxiPNG)
+// ═══════════════════════════════════════════════════════════════
+// Runs inside each worker; serialized with toString(), so it must not use outer variables.
+function codecWorkerMain() {
+  const MIME = { jpeg: 'image/jpeg', webp: 'image/webp', avif: 'image/avif', png: 'image/png' };
+  const encoders = {};
+  const pixelCache = new WeakMap();
+
+  const fmtB = b => b >= 1048576 ? (b / 1048576).toFixed(2) + ' MB' : b >= 1024 ? (b / 1024).toFixed(1) + ' KB' : b + ' B';
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+  function loadEncoder(fmt) {
+    if (!encoders[fmt]) {
+      encoders[fmt] = (async () => {
+        try {
+          if (fmt === 'png') {
+            const m = await import(JSQUASH.oxipng);
+            return img => m.default(img, { level: 2 });
+          }
+          const m = await import(JSQUASH[fmt]);
+          return (img, q, avifSpeed) => m.default(img, fmt === 'avif'
+            ? { quality: Math.round(q * 100), speed: avifSpeed }
+            : { quality: Math.round(q * 100) });
+        } catch (err) {
+          console.warn(`jSquash ${fmt} failed to load, using the browser encoder:`, err);
+          return null;
+        }
+      })();
+    }
+    return encoders[fmt];
+  }
+
+  function render(bmp, w, h, fill) {
+    const c = new OffscreenCanvas(w, h);
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    if (fill) { ctx.fillStyle = fill; ctx.fillRect(0, 0, w, h); }
+    ctx.drawImage(bmp, 0, 0, w, h);
+    return c;
+  }
+
+  function pixels(canvas) {
+    let img = pixelCache.get(canvas);
+    if (!img) {
+      img = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+      pixelCache.set(canvas, img);
+    }
+    return img;
+  }
+
+  // AVIF speed 9 is ~7× faster than 7 for ~1% larger files; compress encodes many times.
+  async function encode(canvas, fmt, q, avifSpeed = 7) {
+    const enc = await loadEncoder(fmt);
+    if (enc) {
+      const buf = await enc(pixels(canvas), q, avifSpeed);
+      return { blob: new Blob([buf], { type: MIME[fmt] }), engine: 'jsquash' };
+    }
+    const blob = await canvas.convertToBlob({ type: MIME[fmt], quality: fmt === 'png' ? undefined : q });
+    if (blob.type !== MIME[fmt]) throw new Error(`${fmt.toUpperCase()} encoding is not supported in this browser`);
+    return { blob, engine: 'native' };
+  }
+
+  // AVIF reaches JPEG-92 visual quality around 70, so map the shared presets onto that scale
+  // (100% stays near-lossless, 92% → 70, 50% → 40).
+  const avifQuality = q => q >= 0.92 ? 0.7 + (q - 0.92) / 0.08 * 0.3 : 0.4 + (q - 0.5) / 0.42 * 0.3;
+
+  async function convert({ file, fmt, quality }) {
+    const bmp = await createImageBitmap(file);
+    const c = render(bmp, bmp.width, bmp.height, fmt === 'jpeg' ? '#ffffff' : null);
+    bmp.close();
+    const { blob, engine } = await encode(c, fmt, fmt === 'avif' ? avifQuality(quality) : quality);
+    return { blob, width: c.width, height: c.height, engine };
+  }
+
+  // Highest quality that fits: probe the top, guess from the size ratio, then
+  // interpolate in log-size space until within `tol` under the target.
+  async function searchQuality(canvas, target, tol, enc, step) {
+    let hi = { q: 0.95, blob: await enc(canvas, 0.95) };
+    step(`Quality 95% → ${fmtB(hi.blob.size)}`);
+    if (hi.blob.size <= target) return { ...hi, fits: true };
+    let lo = null;
+    let q = clamp(0.95 * Math.pow(target / hi.blob.size, 0.8), 0.05, 0.9);
+    for (let i = 0; i < 9; i++) {
+      const blob = await enc(canvas, q);
+      step(`Quality ${Math.round(q * 100)}% → ${fmtB(blob.size)}`);
+      if (blob.size <= target) {
+        lo = { q, blob };
+        if (blob.size >= target * (1 - tol)) break;
+      } else {
+        hi = { q, blob };
+        if (q <= 0.05) break;
       }
-    });
-    await upscaler.warmup([{ patchSize: 64, padding: 4 }]);
-    setAiStrip('upscaleDot','upscaleMsg','ready','ESRGAN AI model ready — real AI upscaling active ✓');
-  } catch (err) {
-    console.warn('UpscalerJS init failed, using smart canvas fallback:', err);
-    upscaler = null;
-    setAiStrip('upscaleDot','upscaleMsg','err',
-      'AI model unavailable — using smart multi-step canvas upscaling with sharpening');
+      if (lo && hi.q - lo.q <= 0.01) break;
+      if (lo) {
+        const t = Math.log(target / lo.blob.size) / Math.log(hi.blob.size / lo.blob.size);
+        q = lo.q + (hi.q - lo.q) * clamp(t, 0.1, 0.9);
+      } else {
+        // Size flattens at low quality (WebP ≈ q^0.5), so overshoot downward to cross the target fast.
+        q = Math.max(0.05, hi.q * Math.pow(target / hi.blob.size, 2) * 0.93);
+      }
+    }
+    return lo ? { ...lo, fits: true } : { ...hi, fits: false };
+  }
+
+  // Largest scale that fits: file size grows roughly with pixel count, so
+  // guess from sqrt(target/size) and refine with log-log interpolation.
+  async function searchScale(bmp, target, tol, encodeFn, step, fill) {
+    const W = bmp.width, H = bmp.height;
+    const at = async s => {
+      const w = Math.max(1, Math.round(W * s)), h = Math.max(1, Math.round(H * s));
+      const canvas = render(bmp, w, h, fill);
+      const blob = await encodeFn(canvas);
+      step(`Resize ${w}×${h} → ${fmtB(blob.size)}`);
+      return { s, canvas, blob };
+    };
+    let hi = await at(1);
+    if (hi.blob.size <= target) return hi;
+    let lo = null;
+    let s = Math.sqrt(target / hi.blob.size) * 0.97;
+    for (let i = 0; i < 10; i++) {
+      const r = await at(clamp(s, 0.01, 0.999));
+      if (r.blob.size <= target) {
+        lo = r;
+        if (r.blob.size >= target * (1 - tol)) break;
+      } else {
+        hi = r;
+        if (r.s <= 0.01) break;
+      }
+      if (lo && hi.s - lo.s < 0.004) break;
+      if (lo) {
+        const k = Math.log(hi.blob.size / lo.blob.size) / Math.log(hi.s / lo.s) || 2;
+        const gap = hi.s - lo.s;
+        s = clamp(lo.s * Math.pow(target / lo.blob.size, 1 / k), lo.s + gap * 0.1, hi.s - gap * 0.1);
+      } else {
+        s = hi.s * Math.sqrt(target / hi.blob.size) * 0.95;
+      }
+    }
+    return lo || hi;
+  }
+
+  async function compress({ file, fmt, target, strategy }, step) {
+    const bmp = await createImageBitmap(file);
+    const W = bmp.width, H = bmp.height;
+    const fill = fmt === 'jpeg' ? '#ffffff' : null;
+    const TOL = 0.03;
+    let engine = 'jsquash';
+    const enc = async (c, q) => { const r = await encode(c, fmt, q, 9); engine = r.engine; return r.blob; };
+    const finish = (blob, w, h, missed) => { bmp.close(); return { blob, width: w, height: h, engine, missed }; };
+
+    if (fmt === 'png') {
+      step('Optimizing PNG losslessly (OxiPNG)…');
+      const full = render(bmp, W, H, null);
+      const optimized = await enc(full, 1);
+      if (optimized.size <= target) return finish(optimized, W, H, false);
+      // Search sizes with the fast native PNG encoder against a target scaled by
+      // OxiPNG's measured savings, then optimize the winner once.
+      const nativePng = c => c.convertToBlob({ type: 'image/png' });
+      const savings = optimized.size / (await nativePng(full)).size;
+      let nativeTarget = target / savings * 0.98;
+      let best = null, bestCanvas = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const r = await searchScale(bmp, nativeTarget, TOL, nativePng, step, null);
+        step('Final OxiPNG optimization…');
+        const fin = await enc(r.canvas, 1);
+        best = fin.size <= r.blob.size ? fin : r.blob;
+        bestCanvas = r.canvas;
+        if (best.size <= target) break;
+        nativeTarget *= (target / best.size) * 0.97;
+      }
+      return finish(best, bestCanvas.width, bestCanvas.height, best.size > target);
+    }
+
+    if (strategy !== 'resize') {
+      const full = render(bmp, W, H, fill);
+      const r = await searchQuality(full, target, TOL, enc, step);
+      if (r.fits || strategy === 'quality') return finish(r.blob, W, H, !r.fits);
+      step('Minimum quality reached — resizing…');
+    }
+    const q = strategy === 'resize' ? 0.92 : 0.82;
+    const r = await searchScale(bmp, target, TOL, c => enc(c, q), step, fill);
+    return finish(r.blob, r.canvas.width, r.canvas.height, r.blob.size > target);
+  }
+
+  async function warmup({ fmt }) {
+    return { engine: (await loadEncoder(fmt)) ? 'jsquash' : 'native' };
+  }
+
+  const OPS = { convert, compress, warmup };
+  self.onmessage = async e => {
+    const { op, args } = e.data;
+    const step = msg => self.postMessage({ type: 'step', msg });
+    try {
+      self.postMessage({ type: 'done', result: await OPS[op](args, step) });
+    } catch (err) {
+      self.postMessage({ type: 'error', error: String((err && err.message) || err) });
+    }
+  };
+}
+
+const codecPool = {
+  slots: [], queue: [], url: null,
+  size: Math.max(1, Math.min(4, Math.floor((navigator.hardwareConcurrency || 2) / 2))),
+};
+
+function spawnCodecWorker() {
+  if (!codecPool.url) {
+    const src = `const JSQUASH = ${JSON.stringify(JSQUASH)};\n(${codecWorkerMain.toString()})();`;
+    codecPool.url = URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
+  }
+  const slot = { worker: new Worker(codecPool.url, { type: 'module' }), job: null };
+  const settle = (fn, value) => {
+    const job = slot.job;
+    slot.job = null;
+    if (job) fn(job, value);
+    pumpCodec();
+  };
+  slot.worker.onmessage = e => {
+    const { type, msg, result, error } = e.data;
+    if (type === 'step') { slot.job?.onStep?.(msg); return; }
+    settle(type === 'done' ? (j, v) => j.resolve(v) : (j, v) => j.reject(new Error(v)), type === 'done' ? result : error);
+  };
+  slot.worker.onerror = e => {
+    e.preventDefault?.();
+    settle((j, v) => j.reject(new Error(v)), e.message || 'Codec worker crashed');
+  };
+  return slot;
+}
+
+function pumpCodec() {
+  while (codecPool.queue.length) {
+    let slot = codecPool.slots.find(s => !s.job);
+    if (!slot && codecPool.slots.length < codecPool.size) {
+      slot = spawnCodecWorker();
+      codecPool.slots.push(slot);
+    }
+    if (!slot) return;
+    const job = codecPool.queue.shift();
+    slot.job = job;
+    job.onStart?.();
+    slot.worker.postMessage({ op: job.op, args: job.args });
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// AI — BACKGROUND REMOVAL (@imgly/background-removal)
-// ═══════════════════════════════════════════════════════════════
-const IMGLY_CDN = 'https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.4.5/dist/browser/';
-
-async function ensureBGModel() {
-  if (bgRemoveFn) return;
-  setAiStrip('bgDot','bgMsg','loading','Loading background removal AI model (~50 MB, one-time)…');
-  const mod = await import(IMGLY_CDN + 'index.js');
-  bgRemoveFn = (url, cfg) => mod.removeBackground(url, { publicPath: IMGLY_CDN, ...cfg });
-  setAiStrip('bgDot','bgMsg','ready','Background removal AI model ready ✓');
-}
-
-function updateBGStrip() {
-  const cdKey = document.getElementById('clipdropKey').value.trim();
-  if (cdKey.length > 10) {
-    setAiStrip('bgDot','bgMsg','ready','ClipDrop key detected — instant background removal ready ✓');
-  } else if (bgRemoveFn) {
-    setAiStrip('bgDot','bgMsg','ready','Browser AI model ready ✓');
-  } else {
-    setAiStrip('bgDot','bgMsg','loading','No ClipDrop key — will use browser AI model (~50 MB download on first use)');
-  }
-}
-
-function setAiStrip(dotId, msgId, state, msg) {
-  const dot = document.getElementById(dotId);
-  const msgEl = document.getElementById(msgId);
-  if (dot) { dot.className = 'ai-dot ' + state; }
-  if (msgEl) msgEl.textContent = msg;
-}
-
-function updateUpscaleStrip() {
-  const p      = document.getElementById('upscaleProvider').value;
-  const cdKey  = document.getElementById('clipdropKey').value.trim();
-  const repKey = document.getElementById('replicateKey').value.trim();
-  if (p === 'clipdrop' && cdKey.length > 10) {
-    setAiStrip('upscaleDot','upscaleMsg','ready','ClipDrop AI upscaling active ✓');
-  } else if (p === 'replicate' && repKey.startsWith('r8_') && repKey.length > 10) {
-    setAiStrip('upscaleDot','upscaleMsg','ready','Replicate Real-ESRGAN active ✓');
-  } else if (p === 'none') {
-    setAiStrip('upscaleDot','upscaleMsg','loading','Smart canvas upscaling (no API key)');
-  } else {
-    setAiStrip('upscaleDot','upscaleMsg','err','AI model unavailable — using smart multi-step canvas upscaling with sharpening');
-  }
-}
-
-function loadScript(src) {
-  return new Promise((res, rej) => {
-    if (document.querySelector(`script[src="${src}"]`)) { res(); return; }
-    const s = document.createElement('script');
-    s.src = src; s.onload = res; s.onerror = rej;
-    document.head.appendChild(s);
+function runCodec(op, args, { onStep, onStart } = {}) {
+  return new Promise((resolve, reject) => {
+    codecPool.queue.push({ op, args, onStep, onStart, resolve, reject });
+    pumpCodec();
   });
+}
+
+function setCodecStatus(state, msg) {
+  document.querySelectorAll('.codec-dot').forEach(d => { d.className = 'ai-dot codec-dot ' + state; });
+  document.querySelectorAll('.codec-msg').forEach(m => { m.textContent = msg; });
+}
+
+function reportCodecEngine(engines) {
+  const workers = `${codecPool.size} background worker${codecPool.size > 1 ? 's' : ''}`;
+  if (engines.includes('native')) {
+    setCodecStatus('warn', `Engine: browser built-in encoder (WebAssembly codecs unavailable) — ${workers}`);
+  } else if (engines.includes('jsquash')) {
+    setCodecStatus('ready', `Engine: MozJPEG · WebP · AVIF · OxiPNG via WebAssembly — ${workers}`);
+  }
+}
+
+function warmCodecs() {
+  setCodecStatus('loading', 'Loading WebAssembly codecs (MozJPEG · WebP · AVIF · OxiPNG)…');
+  runCodec('warmup', { fmt: 'jpeg' })
+    .then(r => reportCodecEngine([r.engine]))
+    .catch(err => {
+      console.warn('Codec worker failed to start:', err);
+      setCodecStatus('err', 'Engine: background workers unavailable in this browser');
+    });
+}
+
+/** Runs one codec job per file across the worker pool, keeping thumbnails and progress in sync. */
+async function runCodecBatch(op, argsFor, verb) {
+  let done = 0;
+  const total = files.length;
+  return Promise.all(files.map((f, i) =>
+    runCodec(op, argsFor(f), { onStart: () => markThumb(i, 'processing') })
+      .then(r => { markThumb(i, 'done'); return r; })
+      .catch(err => { markThumb(i, 'failed'); return { error: err.message }; })
+      .finally(() => { done++; progress((done / total) * 100, `${verb} ${done}/${total}…`); })
+  ));
 }
 
 // ═══════════════════════════════════════════════════════════════
 // CONVERT
 // ═══════════════════════════════════════════════════════════════
+window.updateConvertFmtUI = () => {
+  const fmtVal = document.getElementById('cvtFmt').value;
+  toggle('cvtQualityWrap', fmtVal !== 'png');
+  toggle('cvtPdfCombineWrap', fmtVal === 'pdf');
+};
+
+/** Add current PDF page image (A4, centered, JPEG with white behind alpha). */
+function addImageToPdfPage(doc, img, quality) {
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const margin = 10;
+  const maxW = pageW - 2 * margin;
+  const maxH = pageH - 2 * margin;
+  const PX_TO_MM = 25.4 / 96;
+  const imgWmm = img.naturalWidth * PX_TO_MM;
+  const imgHmm = img.naturalHeight * PX_TO_MM;
+  const scale = Math.min(maxW / imgWmm, maxH / imgHmm, 1);
+  const dw = imgWmm * scale;
+  const dh = imgHmm * scale;
+  const x = margin + (maxW - dw) / 2;
+  const y = margin + (maxH - dh) / 2;
+  doc.addImage(imageToJpegDataUrl(img, quality), 'JPEG', x, y, dw, dh);
+}
+
+async function convertToPdf(quality) {
+  try {
+    await loadScript(JSPDF_URL);
+  } catch {
+    alert('Failed to load PDF library. Check your connection and try again.');
+    return;
+  }
+  const jsPDF = window.jspdf?.jsPDF;
+  if (!jsPDF) { alert('PDF library did not load correctly.'); return; }
+
+  const combine = document.getElementById('cvtPdfCombine').checked;
+  const newDoc = () => new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+  const rows = [];
+
+  if (combine) {
+    const doc = newDoc();
+    for (let i = 0; i < files.length; i++) {
+      markThumb(i, 'processing');
+      progress((i / files.length) * 90, `Adding ${files[i].file.name} to PDF…`);
+      await tick();
+      if (i > 0) doc.addPage();
+      addImageToPdfPage(doc, files[i].img, quality);
+      markThumb(i, 'done');
+    }
+    const blob = doc.output('blob');
+    const outName = files.length === 1 ? `${baseName(files[0].file)}.pdf` : 'converted_images.pdf';
+    const { url, name } = addToBatch('convert', blob, outName);
+    rows.push(batchRow(files[0].url, name, `${files.length} page(s) · ${fmt(blob.size)}`, url));
+  } else {
+    for (let i = 0; i < files.length; i++) {
+      const { file, img, url: thumbUrl } = files[i];
+      markThumb(i, 'processing');
+      progress((i / files.length) * 90, `Creating PDF for ${file.name}…`);
+      await tick();
+      const doc = newDoc();
+      addImageToPdfPage(doc, img, quality);
+      const blob = doc.output('blob');
+      const { url, name } = addToBatch('convert', blob, `${baseName(file)}.pdf`);
+      markThumb(i, 'done');
+      rows.push(batchRow(thumbUrl, name, `${sizeChange(file.size, blob.size)} · PDF`, url));
+    }
+  }
+  progress(100, 'Done!');
+  return rows;
+}
+
 window.doConvert = async () => {
   if (!files.length) return;
   const fmtVal  = document.getElementById('cvtFmt').value;
   const quality = parseFloat(document.getElementById('cvtQuality').value);
-  const mime    = fmtMime(fmtVal);
-  const ext     = fmtVal === 'jpeg' ? 'jpg' : fmtVal;
 
-  // revoke old blobs
-  convertBlobs.forEach(b => URL.revokeObjectURL(b.url));
-  convertBlobs = [];
+  resetBatch('convert');
   show('cardProcessing'); hide('cardConvertResult');
   document.getElementById('procTitle').textContent = 'Converting';
+  progress(0, 'Starting…');
 
-  const rows = [];
-  for (let i = 0; i < files.length; i++) {
-    const { file, img, url: thumbUrl } = files[i];
-    markThumb(i, 'processing');
-    progress((i / files.length) * 90, `Converting ${file.name}…`);
-    await tick();
-
-    const q   = fmtVal === 'png' ? undefined : quality;
-    const blob = await toBlob(img, img.naturalWidth, img.naturalHeight, mime, q);
-    const outUrl  = URL.createObjectURL(blob);
-    const outName = file.name.replace(/\.[^.]+$/, '') + '.' + ext;
-
-    convertBlobs.push({ blob, name: outName, url: outUrl });
-    markThumb(i, 'done');
-
-    const delta = blob.size - file.size;
-    const sign  = delta < 0 ? '▼' : delta > 0 ? '▲' : '=';
-    rows.push(`
-      <div class="batch-item">
-        <img src="${thumbUrl}" alt="">
-        <div class="bi-info">
-          <div class="bi-name" title="${esc(outName)}">${esc(outName)}</div>
-          <div class="bi-size">${fmt(file.size)} ${sign} ${fmt(blob.size)} · ${fmtVal.toUpperCase()}</div>
-        </div>
-        <a class="dl-link" href="${outUrl}" download="${esc(outName)}">↓ Save</a>
-      </div>`);
+  let rows;
+  if (fmtVal === 'pdf') {
+    rows = await convertToPdf(quality);
+  } else {
+    const q = fmtVal === 'png' ? 1 : quality;
+    const results = await runCodecBatch('convert', f => ({ file: f.file, fmt: fmtVal, quality: q }), 'Converted');
+    reportCodecEngine(results.map(r => r.engine).filter(Boolean));
+    rows = results.map((r, i) => {
+      const { file, url: thumbUrl } = files[i];
+      const outName = `${baseName(file)}.${extOf(fmtVal)}`;
+      if (r.error) return batchRow(thumbUrl, outName, `Failed: ${esc(r.error)}`, null);
+      const { url, name } = addToBatch('convert', r.blob, outName);
+      return batchRow(thumbUrl, name, `${sizeChange(file.size, r.blob.size)} · ${fmtVal.toUpperCase()}`, url);
+    });
   }
 
-  progress(100, 'Done!');
-  document.getElementById('batchList').innerHTML = rows.join('');
-  toggle('zipRow', convertBlobs.length > 1);
-  show('cardConvertResult');
   hide('cardProcessing');
-};
-
-window.downloadZip = async () => {
-  if (!window.JSZip) { alert('JSZip not loaded — refresh and try again.'); return; }
-  const zip = new JSZip();
-  convertBlobs.forEach(({ blob, name }) => zip.file(name, blob));
-  const zb = await zip.generateAsync({ type: 'blob' });
-  triggerDownload(URL.createObjectURL(zb), 'converted_images.zip');
+  if (rows) showBatch('convert', 'cardConvertResult', rows);
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -708,332 +1090,383 @@ function updateCompressHint() {
   if (!files.length) return;
   const tb = targetBytes();
   const el = document.getElementById('hintCompress');
-  const os = files[0].file.size;
   if (!tb) { el.textContent = ''; return; }
-  if (tb >= os) {
-    el.className = 'hint warn';
-    el.textContent = `⚠ Target (${fmt(tb)}) ≥ original (${fmt(os)}). Switch to Upscale tab instead.`;
-  } else {
-    el.className = 'hint ok';
-    el.textContent = `✓ Will reduce ~${((1 - tb/os)*100).toFixed(0)}% from ${fmt(os)}`;
+
+  if (files.length === 1) {
+    const os = files[0].file.size;
+    if (tb >= os) {
+      el.className = 'hint warn';
+      el.textContent = `⚠ Target (${fmt(tb)}) ≥ original (${fmt(os)}). Switch to Upscale tab instead.`;
+    } else {
+      el.className = 'hint ok';
+      el.textContent = `✓ Will reduce ~${((1 - tb/os)*100).toFixed(0)}% from ${fmt(os)}`;
+    }
+    return;
   }
+
+  const alreadyOk = files.filter(f => f.file.size <= tb).length;
+  const needsWork = files.length - alreadyOk;
+  el.className = needsWork ? 'hint ok' : 'hint warn';
+  el.textContent = needsWork
+    ? `✓ Will compress ${files.length} files to ~${fmt(tb)} each${alreadyOk ? ` (${alreadyOk} already at/under target)` : ''}`
+    : `⚠ All ${files.length} files are already ≤ target (${fmt(tb)})`;
 }
 document.getElementById('targetSize').addEventListener('input', updateCompressHint);
 document.getElementById('targetUnit').addEventListener('change', updateCompressHint);
 
 window.doCompress = async () => {
   if (!files.length) return;
-  const tb       = targetBytes();
+  const tb = targetBytes();
   if (!tb) { alert('Enter a target size first.'); return; }
-  const { file, img } = files[0];
   const fmtVal   = document.getElementById('fmtCompress').value;
   const strategy = document.getElementById('strategyCompress').value;
-  const mime     = fmtMime(fmtVal);
+  const ext      = extOf(fmtVal);
+  const argsFor  = f => ({ file: f.file, fmt: fmtVal, target: tb, strategy });
 
-  show('cardProcessing'); hide('cardResult');
+  resetBatch('compress');
+  show('cardProcessing'); hide('cardResult'); hide('cardCompressResult');
   document.getElementById('procTitle').textContent = 'Compressing';
-  document.getElementById('imgOrig').src = files[0].url;
+  progress(0, 'Starting…');
 
-  let blob;
-  if (fmtVal === 'png') {
-    progress(5, 'PNG: resizing to hit target…');
-    blob = await bsResize(img, tb, mime, 1);
-  } else if (strategy === 'quality') {
-    progress(5, 'Reducing quality…');
-    blob = await bsQuality(img, tb, mime);
-    if (!blob || blob.size > tb * 1.05) {
-      progress(72, 'Cannot reach target with quality alone. Try "Quality + Resize".');
-      blob = blob || await toBlob(img, img.naturalWidth, img.naturalHeight, mime, 0.01);
+  if (files.length === 1) {
+    const { file, img, url } = files[0];
+    document.getElementById('imgOrig').src = url;
+    let steps = 0;
+    try {
+      const r = await runCodec('compress', argsFor(files[0]), {
+        onStep: msg => progress(Math.min(95, 5 + ++steps * 8), msg),
+      });
+      reportCodecEngine([r.engine]);
+      progress(100, 'Done!');
+      showProcessResult(r.blob, fmtVal, file, img, `${baseName(file)}.${ext}`,
+        r.missed ? 'Could not reach target — smallest result shown' : '');
+    } catch (err) {
+      hide('cardProcessing');
+      alert(`Compression failed: ${err.message}`);
     }
-  } else if (strategy === 'resize') {
-    progress(5, 'Resizing…');
-    blob = await bsResize(img, tb, mime, 0.92);
-  } else {
-    progress(5, 'Reducing quality…');
-    blob = await bsQuality(img, tb, mime);
-    if (!blob || blob.size > tb * 1.05) {
-      progress(50, 'Minimum quality reached — resizing…');
-      blob = await bsResize(img, tb, mime, 0.82);
-    }
+    return;
   }
 
-  progress(100, 'Done!');
-  showProcessResult(blob, fmtVal, file, img);
+  const results = await runCodecBatch('compress', argsFor, 'Compressed');
+  reportCodecEngine(results.map(r => r.engine).filter(Boolean));
+  const rows = results.map((r, i) => {
+    const { file, url: thumbUrl } = files[i];
+    const outName = `${baseName(file)}.${ext}`;
+    if (r.error) return batchRow(thumbUrl, outName, `Failed: ${esc(r.error)}`, null);
+    const { url, name } = addToBatch('compress', r.blob, outName);
+    const warn = r.missed ? ' · <span style="color:var(--yellow)">⚠ above target</span>' : '';
+    return batchRow(thumbUrl, name, `${sizeChange(file.size, r.blob.size)} · ${r.width}×${r.height} · ${fmtVal.toUpperCase()}${warn}`, url);
+  });
+
+  hide('cardProcessing');
+  showBatch('compress', 'cardCompressResult', rows);
 };
 
-async function bsQuality(img, targetB, mime) {
-  let lo = 0.01, hi = 1.0, best = null;
-  for (let i = 0; i < 22; i++) {
-    const mid = (lo + hi) / 2;
-    const b = await toBlob(img, img.naturalWidth, img.naturalHeight, mime, mid);
-    progress(10 + i * 2.5, `Quality ${(mid*100).toFixed(0)}% → ${fmt(b.size)}`);
-    if (b.size <= targetB) { best = b; lo = mid; } else hi = mid;
-    if (hi - lo < 0.005) break;
+// ═══════════════════════════════════════════════════════════════
+// SHARED AI HELPERS
+// ═══════════════════════════════════════════════════════════════
+let webgpuCheck = null;
+function hasWebGPU() {
+  if (!webgpuCheck) {
+    webgpuCheck = (async () => {
+      try { return !!(navigator.gpu && await navigator.gpu.requestAdapter()); }
+      catch { return false; }
+    })();
   }
-  return best;
+  return webgpuCheck;
 }
 
-async function bsResize(img, targetB, mime, quality = 0.88) {
-  const ow = img.naturalWidth, oh = img.naturalHeight;
-  let lo = 0.05, hi = 1.0, best = null;
-  for (let i = 0; i < 22; i++) {
-    const mid = (lo + hi) / 2;
-    const w = Math.max(1, Math.round(ow * mid));
-    const h = Math.max(1, Math.round(oh * mid));
-    const b = await toBlob(img, w, h, mime, mime === 'image/png' ? undefined : quality);
-    progress(10 + i * 4, `Resize ${w}×${h} → ${fmt(b.size)}`);
-    if (b.size <= targetB) { best = b; lo = mid; } else hi = mid;
-    if (hi - lo < 0.005) break;
+function deviceLabel(device) {
+  return device === 'webgpu' ? 'Engine: WebGPU (graphics card)' : 'Engine: CPU (WebAssembly) — slower, no WebGPU available';
+}
+
+function setAiStrip(dotId, msgId, state, msg) {
+  const dot = document.getElementById(dotId);
+  const msgEl = document.getElementById(msgId);
+  if (dot) dot.className = 'ai-dot ' + state;
+  if (msgEl) msgEl.textContent = msg;
+  if (state === 'loading' && !document.getElementById('cardProcessing').classList.contains('hidden')) {
+    document.getElementById('progMsg').textContent = msg;
   }
-  return best || await toBlob(img, Math.max(1,Math.round(ow*.05)), Math.max(1,Math.round(oh*.05)), mime, quality);
+}
+
+/** Fetches a model file once, then serves it from Cache Storage on later visits. */
+async function fetchCached(url, onProgress) {
+  let cache = null;
+  try {
+    cache = await caches.open(MODEL_CACHE);
+    const hit = await cache.match(url);
+    if (hit) return await hit.arrayBuffer();
+  } catch { cache = null; }
+
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`Model download failed (HTTP ${resp.status})`);
+  const total = +resp.headers.get('content-length') || 0;
+  const reader = resp.body.getReader();
+  const chunks = [];
+  let loaded = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    loaded += value.length;
+    onProgress?.(loaded, total);
+  }
+  const buf = new Uint8Array(loaded);
+  let off = 0;
+  for (const c of chunks) { buf.set(c, off); off += c.length; }
+  try { await cache?.put(url, new Response(buf.slice())); } catch { /* quota or private mode */ }
+  return buf.buffer;
+}
+
+function loadScript(src) {
+  return new Promise((res, rej) => {
+    if (document.querySelector(`script[src="${src}"]`)) { res(); return; }
+    const s = document.createElement('script');
+    s.src = src; s.onload = res; s.onerror = rej;
+    document.head.appendChild(s);
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════
-// UPSCALE
+// UPSCALE — Real-ESRGAN general x4v3 via ONNX Runtime Web
 // ═══════════════════════════════════════════════════════════════
+let upscalerPromise = null;
+
+function ensureUpscaler() {
+  if (!upscalerPromise) {
+    upscalerPromise = (async () => {
+      setAiStrip('upscaleDot', 'upscaleMsg', 'loading', 'Loading Real-ESRGAN engine…');
+      const ort = await import(ORT_BASE + 'ort.webgpu.min.mjs');
+      ort.env.wasm.wasmPaths = ORT_BASE;
+      const model = await fetchCached(ESRGAN_URL, (l, t) =>
+        setAiStrip('upscaleDot', 'upscaleMsg', 'loading',
+          `Downloading Real-ESRGAN model… ${t ? Math.round(l / t * 100) + '%' : fmt(l)} (one-time, ~5 MB)`));
+      let session = null, device = 'wasm';
+      if (await hasWebGPU()) {
+        try {
+          session = await ort.InferenceSession.create(new Uint8Array(model.slice(0)), { executionProviders: ['webgpu'] });
+          device = 'webgpu';
+        } catch (err) { console.warn('WebGPU upscaler failed, falling back to CPU:', err); }
+      }
+      if (!session) session = await ort.InferenceSession.create(new Uint8Array(model), { executionProviders: ['wasm'] });
+      setAiStrip('upscaleDot', 'upscaleMsg', device === 'webgpu' ? 'ready' : 'warn',
+        `Real-ESRGAN x4 AI ready — ${deviceLabel(device)}`);
+      return { ort, session, device };
+    })().catch(err => {
+      upscalerPromise = null;
+      console.warn('Real-ESRGAN failed to load:', err);
+      setAiStrip('upscaleDot', 'upscaleMsg', 'err', 'AI upscaler failed to load — basic canvas upscaling will be used');
+      throw err;
+    });
+  }
+  return upscalerPromise;
+}
+
 window.onScaleChange = () => {
   toggle('fieldCustomW', document.getElementById('scaleFactor').value === 'custom');
   updateUpscaleHint();
 };
 
-function updateUpscaleHint() {
-  if (!files.length) return;
-  const img = files[0].img;
-  const sf  = document.getElementById('scaleFactor').value;
-  let w, h;
+function upscaleTarget(img) {
+  const sf = document.getElementById('scaleFactor').value;
+  const iw = img.naturalWidth, ih = img.naturalHeight;
+  let w, label;
   if (sf === 'custom') {
     w = parseInt(document.getElementById('customWidth').value) || 0;
-    if (!w) { document.getElementById('hintUpscale').textContent = ''; return; }
-    h = Math.round(w * img.naturalHeight / img.naturalWidth);
+    label = `${w}w`;
   } else {
-    w = Math.round(img.naturalWidth  * parseFloat(sf));
-    h = Math.round(img.naturalHeight * parseFloat(sf));
+    w = Math.round(iw * parseFloat(sf));
+    label = `${sf}x`;
   }
-  document.getElementById('hintUpscale').textContent =
-    `→ Output: ${w} × ${h} px  (${(w*h/1e6).toFixed(2)} MP)`;
+  let h = Math.round(w * ih / iw);
+  const cap = Math.min(1, Math.sqrt(MAX_UPSCALE_OUT_PX / (w * h || 1)), MAX_CANVAS_SIDE / Math.max(w, h, 1));
+  if (cap < 1) {
+    w = Math.floor(w * cap); h = Math.floor(h * cap);
+    label = `${w}w`;
+  }
+  return { w, h, label, capped: cap < 1 };
 }
 
-window.onProviderChange = () => {
-  const p = document.getElementById('upscaleProvider').value;
-  toggle('fieldClipdropKey',  p === 'clipdrop');
-  toggle('fieldReplicateKey', p === 'replicate');
-  updateUpscaleStrip();
-};
+function updateUpscaleHint() {
+  const el = document.getElementById('hintUpscale');
+  if (!files.length) { el.textContent = ''; return; }
+  const { w, h, capped } = upscaleTarget(files[0].img);
+  if (!w) { el.textContent = ''; return; }
+  const more = files.length > 1 ? `  — first of ${files.length} files, each keeps its own proportions` : '';
+  const cap = capped ? `  — capped at ${MAX_UPSCALE_OUT_PX / 1e6} MP to stay within browser memory` : '';
+  el.textContent = `→ Output: ${w} × ${h} px  (${(w * h / 1e6).toFixed(2)} MP)${cap}${more}`;
+}
 
-window.onApiKeyInput = () => {
-  const p        = document.getElementById('upscaleProvider').value;
-  const cdKey    = document.getElementById('clipdropKey').value.trim();
-  const repKey   = document.getElementById('replicateKey').value.trim();
-  const cdHint   = document.getElementById('clipdropHint');
-  const repHint  = document.getElementById('replicateHint');
+/** Tiled 4× super-resolution; returns a canvas at exactly outW × outH. */
+async function esrganUpscale(img, outW, outH, onTile) {
+  const { ort, session } = await ensureUpscaler();
+  const S = 4, T = 384, PAD = 16, STEP = T - 2 * PAD;
+  const pre = Math.min(1, Math.sqrt(MAX_AI_OUT_PX / (img.naturalWidth * img.naturalHeight * S * S)));
+  const W = Math.max(1, Math.round(img.naturalWidth * pre));
+  const H = Math.max(1, Math.round(img.naturalHeight * pre));
 
-  // Save keys to localStorage
-  if (p === 'clipdrop' && cdKey) localStorage.setItem('cdKey', cdKey);
-  if (p === 'replicate' && repKey) localStorage.setItem('repKey', repKey);
+  const srcCanvas = document.createElement('canvas');
+  srcCanvas.width = W; srcCanvas.height = H;
+  const sctx = srcCanvas.getContext('2d', { willReadFrequently: true });
+  sctx.imageSmoothingQuality = 'high';
+  sctx.drawImage(img, 0, 0, W, H);
+  const src = sctx.getImageData(0, 0, W, H).data;
+  srcCanvas.width = srcCanvas.height = 0;
 
-  updateUpscaleStrip();
+  const out = document.createElement('canvas');
+  out.width = W * S; out.height = H * S;
+  const octx = out.getContext('2d');
 
-  if (p === 'clipdrop') {
-    if (cdKey.length > 10) {
-      cdHint.className = 'hint ok';
-      cdHint.innerHTML = '✓ Key set — ClipDrop AI upscaling active (100 free/day)';
-    } else if (cdKey) {
-      cdHint.className = 'hint warn';
-      cdHint.innerHTML = '⚠ Key looks short — double-check it';
-    } else {
-      cdHint.className = 'hint';
-      cdHint.innerHTML = '100 free upscales/day. <a href="https://clipdrop.co/apis" target="_blank" style="color:var(--accent)">Get a free key at clipdrop.co/apis</a>';
-    }
-  } else if (p === 'replicate') {
-    if (repKey.startsWith('r8_') && repKey.length > 10) {
-      repHint.className = 'hint ok';
-      repHint.innerHTML = '✓ Key set — Replicate Real-ESRGAN active';
-    } else if (repKey) {
-      repHint.className = 'hint warn';
-      repHint.innerHTML = '⚠ Key should start with r8_ — double-check it';
-    } else {
-      repHint.className = 'hint';
-      repHint.innerHTML = '~$0.002/image after free trial. <a href="https://replicate.com" target="_blank" style="color:var(--accent)">Get a key at replicate.com</a>';
+  const cols = Math.ceil(W / STEP), rows = Math.ceil(H / STEP), total = cols * rows;
+  const plane = T * T, OT = T * S, oplane = OT * OT;
+  const input = new Float32Array(3 * plane);
+  const inName = session.inputNames[0], outName = session.outputNames[0];
+  let done = 0;
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const x0 = c * STEP, y0 = r * STEP;
+      const cw = Math.min(STEP, W - x0), ch = Math.min(STEP, H - y0);
+      const sx = x0 - PAD, sy = y0 - PAD;
+      // Edge tiles repeat border pixels so every inference sees a full 384×384 input
+      for (let y = 0; y < T; y++) {
+        const row = Math.min(H - 1, Math.max(0, sy + y)) * W;
+        for (let x = 0; x < T; x++) {
+          const p = (row + Math.min(W - 1, Math.max(0, sx + x))) * 4, k = y * T + x;
+          input[k] = src[p] / 255;
+          input[plane + k] = src[p + 1] / 255;
+          input[2 * plane + k] = src[p + 2] / 255;
+        }
+      }
+      const result = await session.run({ [inName]: new ort.Tensor('float32', input, [1, 3, T, T]) });
+      const o = result[outName].data;
+      const OW = cw * S, OH = ch * S, off = PAD * S;
+      const tile = octx.createImageData(OW, OH);
+      const d = tile.data;
+      for (let y = 0; y < OH; y++) {
+        const base = (off + y) * OT + off;
+        for (let x = 0; x < OW; x++) {
+          const k = base + x, p = (y * OW + x) * 4;
+          d[p] = o[k] * 255;
+          d[p + 1] = o[oplane + k] * 255;
+          d[p + 2] = o[2 * oplane + k] * 255;
+          d[p + 3] = 255;
+        }
+      }
+      octx.putImageData(tile, x0 * S, y0 * S);
+      result[outName].dispose?.();
+      onTile(++done, total);
+      await tick();
     }
   }
-};
+
+  if (hasTransparency(src)) restoreAlpha(out, img);
+  return out;
+}
+
+function hasTransparency(rgba) {
+  for (let i = 3; i < rgba.length; i += 4) if (rgba[i] < 255) return true;
+  return false;
+}
+
+/** Real-ESRGAN is RGB-only; carry the source alpha over with a smooth resize. */
+function restoreAlpha(canvas, img) {
+  const w = canvas.width, h = canvas.height;
+  const a = document.createElement('canvas');
+  a.width = w; a.height = h;
+  const actx = a.getContext('2d', { willReadFrequently: true });
+  actx.imageSmoothingQuality = 'high';
+  actx.drawImage(img, 0, 0, w, h);
+  const alpha = actx.getImageData(0, 0, w, h).data;
+  a.width = a.height = 0;
+  const ctx = canvas.getContext('2d');
+  const data = ctx.getImageData(0, 0, w, h);
+  for (let i = 3; i < alpha.length; i += 4) data.data[i] = alpha[i];
+  ctx.putImageData(data, 0, 0);
+}
+
+/** Resize to the final size; halves step by step so large downscales stay sharp. */
+function finishCanvas(src, w, h, fill) {
+  let cur = src;
+  while (cur.width / 2 >= w && cur.height / 2 >= h) {
+    const next = document.createElement('canvas');
+    next.width = Math.round(cur.width / 2); next.height = Math.round(cur.height / 2);
+    const nctx = next.getContext('2d');
+    nctx.imageSmoothingQuality = 'high';
+    nctx.drawImage(cur, 0, 0, next.width, next.height);
+    if (cur !== src) cur.width = cur.height = 0;
+    cur = next;
+  }
+  if (cur.width === w && cur.height === h && !fill) return cur;
+  const final = document.createElement('canvas');
+  final.width = w; final.height = h;
+  const fctx = final.getContext('2d');
+  fctx.imageSmoothingEnabled = true;
+  fctx.imageSmoothingQuality = 'high';
+  if (fill) { fctx.fillStyle = fill; fctx.fillRect(0, 0, w, h); }
+  fctx.drawImage(cur, 0, 0, w, h);
+  if (cur !== src) cur.width = cur.height = 0;
+  return final;
+}
 
 window.doUpscale = async () => {
   if (!files.length) return;
-  const { file, img } = files[0];
-  const sf       = document.getElementById('scaleFactor').value;
-  const fmtVal   = document.getElementById('fmtUpscale').value;
-  const mime     = fmtMime(fmtVal);
-  const provider = document.getElementById('upscaleProvider').value;
-  const cdKey    = document.getElementById('clipdropKey').value.trim();
-  const repKey   = document.getElementById('replicateKey').value.trim();
-  let w, h;
-  if (sf === 'custom') {
-    w = parseInt(document.getElementById('customWidth').value);
-    h = Math.round(w * img.naturalHeight / img.naturalWidth);
-  } else {
-    w = Math.round(img.naturalWidth  * parseFloat(sf));
-    h = Math.round(img.naturalHeight * parseFloat(sf));
-  }
+  const fmtVal = document.getElementById('fmtUpscale').value;
+  const mime   = fmtMime(fmtVal);
+  if (!upscaleTarget(files[0].img).w) { alert('Enter a target width first.'); return; }
 
-  show('cardProcessing'); hide('cardResult');
+  resetBatch('upscale');
+  show('cardProcessing'); hide('cardResult'); hide('cardUpscaleResult');
   document.getElementById('procTitle').textContent = 'Upscaling';
-  document.getElementById('imgOrig').src = files[0].url;
+  progress(1, 'Loading Real-ESRGAN AI…');
 
-  let blob;
+  let aiReady = true;
+  try { await ensureUpscaler(); } catch { aiReady = false; }
 
-  // ── Priority 1: ClipDrop (default cloud AI) ──
-  if (provider === 'clipdrop' && cdKey.length > 10) {
+  const n = files.length;
+  const rows = [];
+  let single = null;
+  for (let i = 0; i < n; i++) {
+    const { file, img, url: thumbUrl } = files[i];
+    const { w, h, label } = upscaleTarget(img);
+    const outName = `${baseName(file)}_upscaled_${label}.${extOf(fmtVal)}`;
+    const prefix = n > 1 ? `Upscaling ${i + 1}/${n}: ${file.name}` : `Upscaling ${file.name}`;
+    markThumb(i, 'processing');
+    progress((i / n) * 100, `${prefix}…`);
+    await tick();
     try {
-      blob = await upscaleViaClipdrop(img, w, h, cdKey, fmtVal);
-    } catch (e) {
-      console.warn('ClipDrop upscale failed:', e);
-      progress(5, `ClipDrop failed (${e.message}) — falling back…`);
-      await tick(); blob = null;
+      const big = aiReady
+        ? await esrganUpscale(img, w, h, (d, t) => progress(((i + d / t) / n) * 98, `${prefix} — tile ${d}/${t}`))
+        : await smartUpscale(img, w, h);
+      const final = finishCanvas(big, w, h, fmtVal === 'jpeg' ? '#ffffff' : null);
+      const blob = await canvasToBlob(final, mime, fmtVal === 'png' ? undefined : 0.95);
+      if (final !== big) final.width = final.height = 0;
+      big.width = big.height = 0;
+      markThumb(i, 'done');
+      if (n === 1) { single = { blob, file, img, outName }; break; }
+      const { url, name } = addToBatch('upscale', blob, outName);
+      rows.push(batchRow(thumbUrl, name, `${img.naturalWidth}×${img.naturalHeight} → ${w}×${h} · ${fmt(blob.size)}`, url));
+    } catch (err) {
+      console.error('Upscale failed:', err);
+      markThumb(i, 'failed');
+      rows.push(batchRow(thumbUrl, outName, `Failed: ${esc(err.message || 'out of memory')}`, null));
     }
-  }
-
-  // ── Priority 2: Replicate Real-ESRGAN ──
-  if (!blob && provider === 'replicate' && repKey.startsWith('r8_')) {
-    try {
-      const scale = sf === 'custom' || parseFloat(sf) > 4 ? 4 : (parseFloat(sf) <= 2 ? 2 : 4);
-      blob = await upscaleViaReplicate(img, scale, repKey, fmtVal);
-    } catch (e) {
-      console.warn('Replicate upscale failed:', e);
-      progress(5, `Replicate failed (${e.message}) — falling back…`);
-      await tick(); blob = null;
-    }
-  }
-
-  // ── Priority 3: UpscalerJS browser AI (ESRGAN via CDN) ──
-  if (!blob && upscaler && parseFloat(sf) <= 4 && sf !== 'custom') {
-    try {
-      progress(10, `Browser AI upscaling to ${w}×${h}…`);
-      const aiResult = await upscaler.upscale(img);
-      progress(80, 'Encoding…');
-      const canvas = document.createElement('canvas');
-      canvas.width = w; canvas.height = h;
-      const ctx = canvas.getContext('2d');
-      ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(typeof aiResult === 'string' ? await loadImg(aiResult) : aiResult, 0, 0, w, h);
-      blob = await new Promise(r => canvas.toBlob(r, mime, fmtVal === 'png' ? undefined : 1.0));
-    } catch (e) {
-      console.warn('UpscalerJS error, falling back:', e);
-      blob = null;
-    }
-  }
-
-  // ── Priority 4: Smart multi-step canvas + unsharp mask ──
-  if (!blob) {
-    progress(10, `Smart upscaling to ${w}×${h}…`);
-    blob = await smartUpscale(img, w, h, mime, fmtVal);
   }
 
   progress(100, 'Done!');
-  showProcessResult(blob, fmtVal, file, img);
+  if (single) { showProcessResult(single.blob, fmtVal, single.file, single.img, single.outName); return; }
+  hide('cardProcessing');
+  if (n === 1) { alert(`Upscaling failed. Try a smaller scale factor.`); return; }
+  showBatch('upscale', 'cardUpscaleResult', rows);
 };
 
-// ── ClipDrop Upscaling ─────────────────────────────────────────
-async function upscaleViaClipdrop(img, targetW, targetH, apiKey, fmtVal) {
-  progress(5, 'Preparing image for ClipDrop…');
-  await tick();
-
-  // Convert to JPEG blob for upload
-  const srcCanvas = document.createElement('canvas');
-  srcCanvas.width = img.naturalWidth; srcCanvas.height = img.naturalHeight;
-  srcCanvas.getContext('2d').drawImage(img, 0, 0);
-  const srcBlob = await new Promise(r => srcCanvas.toBlob(r, 'image/jpeg', 0.95));
-
-  progress(15, 'Sending to ClipDrop AI upscaling…');
-
-  const form = new FormData();
-  form.append('image_file', srcBlob, 'image.jpg');
-  form.append('target_width',  String(targetW));
-  form.append('target_height', String(targetH));
-
-  const resp = await fetch('https://clipdrop-api.co/image-upscaling/v1/upscale', {
-    method: 'POST',
-    headers: { 'x-api-key': apiKey },
-    body: form
-  });
-
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => resp.status);
-    throw new Error(`ClipDrop ${resp.status}: ${text}`);
-  }
-
-  progress(85, 'Encoding result…');
-  const resultBlob = await resp.blob();
-
-  // Convert to requested output format
-  const resultImg = await loadImg(URL.createObjectURL(resultBlob));
-  const outCanvas = document.createElement('canvas');
-  outCanvas.width = resultImg.naturalWidth; outCanvas.height = resultImg.naturalHeight;
-  outCanvas.getContext('2d').drawImage(resultImg, 0, 0);
-  return new Promise(r => outCanvas.toBlob(r, fmtMime(fmtVal), fmtVal === 'png' ? undefined : 1.0));
-}
-
-// ── Replicate Real-ESRGAN ──────────────────────────────────────
-async function upscaleViaReplicate(img, scale, apiKey, fmtVal) {
-  progress(5, 'Converting image for upload…');
-  await tick();
-
-  const srcCanvas = document.createElement('canvas');
-  srcCanvas.width = img.naturalWidth; srcCanvas.height = img.naturalHeight;
-  srcCanvas.getContext('2d').drawImage(img, 0, 0);
-  const dataUrl = srcCanvas.toDataURL('image/jpeg', 0.95);
-
-  progress(12, 'Sending to Replicate Real-ESRGAN…');
-
-  const createResp = await fetch('https://api.replicate.com/v1/models/nightmareai/real-esrgan/predictions', {
-    method: 'POST',
-    headers: { 'Authorization': `Token ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ input: { image: dataUrl, scale, face_enhance: false } })
-  });
-
-  if (!createResp.ok) {
-    const err = await createResp.json().catch(() => ({}));
-    throw new Error(err.detail || `HTTP ${createResp.status}`);
-  }
-
-  let prediction = await createResp.json();
-  const pollUrl  = `https://api.replicate.com/v1/predictions/${prediction.id}`;
-  let elapsed    = 0;
-
-  // Poll until done
-  while (prediction.status !== 'succeeded' && prediction.status !== 'failed' && prediction.status !== 'canceled') {
-    await new Promise(r => setTimeout(r, 1500));
-    elapsed += 1.5;
-    const pollResp = await fetch(pollUrl, { headers: { 'Authorization': `Token ${apiKey}` } });
-    prediction = await pollResp.json();
-    const pct = Math.min(85, 15 + elapsed * 3);
-    progress(pct, `Real-ESRGAN processing… (${prediction.status}, ${elapsed.toFixed(0)}s)`);
-  }
-
-  if (prediction.status !== 'succeeded') throw new Error(prediction.error || 'Prediction failed');
-
-  progress(88, 'Downloading result…');
-  const outputUrl  = Array.isArray(prediction.output) ? prediction.output[0] : prediction.output;
-  const imgResp    = await fetch(outputUrl);
-  const resultBlob = await imgResp.blob();
-
-  // Convert to requested format
-  const resultImg  = await loadImg(URL.createObjectURL(resultBlob));
-  const outCanvas  = document.createElement('canvas');
-  outCanvas.width  = resultImg.naturalWidth;
-  outCanvas.height = resultImg.naturalHeight;
-  outCanvas.getContext('2d').drawImage(resultImg, 0, 0);
-  progress(96, 'Encoding final image…');
-  return new Promise(r => outCanvas.toBlob(r, fmtMime(fmtVal), fmtVal === 'png' ? undefined : 1.0));
-}
-
-async function smartUpscale(img, targetW, targetH, mime, fmtVal) {
-  // Step 1: multi-step scaling (max 2× per step avoids interpolation collapse)
+/** Last-resort fallback when no AI runtime can load: stepped resize + unsharp mask. */
+async function smartUpscale(img, targetW, targetH) {
   let canvas = document.createElement('canvas');
-  canvas.width  = img.naturalWidth;
+  canvas.width = img.naturalWidth;
   canvas.height = img.naturalHeight;
   canvas.getContext('2d').drawImage(img, 0, 0);
-
   let cw = img.naturalWidth, ch = img.naturalHeight;
   while (cw < targetW || ch < targetH) {
     const sw = Math.min(cw * 2, targetW);
@@ -1045,45 +1478,28 @@ async function smartUpscale(img, targetW, targetH, mime, fmtVal) {
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(canvas, 0, 0, sw, sh);
     canvas = next; cw = sw; ch = sh;
-    progress(10 + (cw / targetW) * 55, `Upscaling step: ${cw}×${ch}…`);
     await tick();
   }
-
-  // Step 2: unsharp mask to recover perceived sharpness
-  progress(70, 'Sharpening…');
-  await tick();
-  canvas = applyUnsharpMask(canvas, 1.0, 1.4);
-
-  progress(90, 'Encoding…');
-  await tick();
-  return new Promise(r => canvas.toBlob(r, mime, fmtVal === 'png' ? undefined : 1.0));
+  return applyUnsharpMask(canvas, 1.0, 1.4);
 }
 
 function applyUnsharpMask(src, radius, amount) {
   const w = src.width, h = src.height;
-  // Get original pixels
   const origCtx = src.getContext('2d');
   const origData = origCtx.getImageData(0, 0, w, h);
-
-  // Create blurred version
   const blurCanvas = document.createElement('canvas');
   blurCanvas.width = w; blurCanvas.height = h;
   const bCtx = blurCanvas.getContext('2d');
   bCtx.filter = `blur(${radius}px)`;
   bCtx.drawImage(src, 0, 0);
   const blurData = bCtx.getImageData(0, 0, w, h);
-
-  // Sharpen: out = orig + amount*(orig - blur)
   const out = origCtx.createImageData(w, h);
   for (let i = 0; i < origData.data.length; i += 4) {
     for (let c = 0; c < 3; c++) {
-      out.data[i+c] = Math.min(255, Math.max(0,
-        origData.data[i+c] + amount * (origData.data[i+c] - blurData.data[i+c])
-      ));
+      out.data[i+c] = origData.data[i+c] + amount * (origData.data[i+c] - blurData.data[i+c]);
     }
     out.data[i+3] = origData.data[i+3];
   }
-
   const result = document.createElement('canvas');
   result.width = w; result.height = h;
   result.getContext('2d').putImageData(out, 0, 0);
@@ -1091,130 +1507,228 @@ function applyUnsharpMask(src, radius, amount) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// REMOVE BACKGROUND
+// REMOVE BACKGROUND — BiRefNet / ISNet via Transformers.js
 // ═══════════════════════════════════════════════════════════════
+const bgEngines = {};
+const bgDevices = {};
+
+function showBGReady(key) {
+  const device = bgDevices[key];
+  setAiStrip('bgDot', 'bgMsg', device === 'webgpu' ? 'ready' : 'warn', `${BG_MODELS[key].label} ready — ${deviceLabel(device)}`);
+}
+
+function ensureBGEngine(key) {
+  if (!bgEngines[key]) {
+    const cfg = BG_MODELS[key];
+    bgEngines[key] = (async () => {
+      setAiStrip('bgDot', 'bgMsg', 'loading', `Loading ${cfg.label} model (${cfg.size}, one-time download)…`);
+      const T = await import(TJS_URL);
+      T.env.allowLocalModels = false;
+      const progress_callback = p => {
+        if (p.status === 'progress' && p.total > 1e6) {
+          setAiStrip('bgDot', 'bgMsg', 'loading',
+            `Downloading ${cfg.label} model… ${Math.round(p.loaded / p.total * 100)}% of ${fmt(p.total)} (one-time)`);
+        }
+      };
+      const load = device => cfg.kind === 'birefnet'
+        ? loadBiRefNet(T, cfg, device, progress_callback)
+        : loadISNet(T, cfg, device, progress_callback);
+      let run = null, device = 'wasm';
+      if (await hasWebGPU()) {
+        try { run = await load('webgpu'); device = 'webgpu'; }
+        catch (err) { console.warn(`${cfg.label} on WebGPU failed, falling back to CPU:`, err); }
+      }
+      if (!run) run = await load('wasm');
+      bgDevices[key] = device;
+      if (document.getElementById('bgModel').value === key) showBGReady(key);
+      return run;
+    })().catch(err => {
+      delete bgEngines[key];
+      console.warn(`${cfg.label} failed to load:`, err);
+      setAiStrip('bgDot', 'bgMsg', 'err', `${cfg.label} model failed to load — check your connection and try again`);
+      throw err;
+    });
+  }
+  return bgEngines[key];
+}
+
+window.onBGModelChange = () => {
+  const key = document.getElementById('bgModel').value;
+  const cfg = BG_MODELS[key];
+  if (bgDevices[key]) showBGReady(key);
+  else if (bgEngines[key]) setAiStrip('bgDot', 'bgMsg', 'loading', `Loading ${cfg.label} model (${cfg.size}, one-time download)…`);
+  else setAiStrip('bgDot', 'bgMsg', '', `${cfg.label} model (${cfg.size}) — downloads once when you click Remove Background`);
+};
+
+/** BiRefNet-lite 512: returns a sigmoid alpha mask at the model's 512×512 resolution. */
+async function loadBiRefNet(T, cfg, device, progress_callback) {
+  const model = await T.AutoModel.from_pretrained(cfg.id, {
+    device, dtype: device === 'webgpu' ? 'fp16' : 'fp32', progress_callback,
+  });
+  const processor = await T.AutoProcessor.from_pretrained(cfg.id, { progress_callback });
+  return async file => {
+    const image = await T.RawImage.fromBlob(file);
+    const { pixel_values } = await processor(image);
+    const out = await model({ input_image: pixel_values });
+    const logits = out.logits ?? Object.values(out)[0];
+    const [mh, mw] = logits.dims.slice(-2);
+    const raw = logits.data instanceof Uint16Array ? halfToFloat(logits.data) : logits.data;
+    const mask = new Uint8ClampedArray(mw * mh);
+    for (let i = 0; i < mask.length; i++) mask[i] = 255 / (1 + Math.exp(-raw[i]));
+    pixel_values.dispose?.();
+    logits.dispose?.();
+    return { mask, mw, mh };
+  };
+}
+
+/** ISNet int8: the background-removal pipeline returns the image with the mask in its alpha channel. */
+async function loadISNet(T, cfg, device, progress_callback) {
+  const segmenter = await T.pipeline('background-removal', cfg.id, { device, dtype: 'q8', progress_callback });
+  return async file => {
+    let res = await segmenter(await T.RawImage.fromBlob(file));
+    if (Array.isArray(res)) res = res[0];
+    const { width: mw, height: mh, channels, data } = res;
+    const mask = new Uint8ClampedArray(mw * mh);
+    for (let i = 0; i < mask.length; i++) mask[i] = data[i * channels + channels - 1];
+    return { mask, mw, mh };
+  };
+}
+
+function halfToFloat(h) {
+  const out = new Float32Array(h.length);
+  for (let i = 0; i < h.length; i++) {
+    const v = h[i], s = v & 0x8000 ? -1 : 1, e = (v >> 10) & 0x1f, f = v & 0x3ff;
+    out[i] = e === 0 ? s * 2 ** -14 * (f / 1024)
+           : e === 31 ? (f ? NaN : s * Infinity)
+           : s * 2 ** (e - 15) * (1 + f / 1024);
+  }
+  return out;
+}
+
+/** Scales the mask to the original size and applies it as the alpha channel. */
+function applyMask(img, mask, mw, mh) {
+  const W = img.naturalWidth, H = img.naturalHeight;
+  const m = document.createElement('canvas');
+  m.width = mw; m.height = mh;
+  const mctx = m.getContext('2d');
+  const md = mctx.createImageData(mw, mh);
+  for (let i = 0; i < mask.length; i++) {
+    md.data[i * 4] = md.data[i * 4 + 1] = md.data[i * 4 + 2] = mask[i];
+    md.data[i * 4 + 3] = 255;
+  }
+  mctx.putImageData(md, 0, 0);
+
+  const out = document.createElement('canvas');
+  out.width = W; out.height = H;
+  const ctx = out.getContext('2d', { willReadFrequently: true });
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(m, 0, 0, W, H);
+  m.width = m.height = 0;
+  const alpha = ctx.getImageData(0, 0, W, H).data;
+  ctx.clearRect(0, 0, W, H);
+  ctx.drawImage(img, 0, 0);
+  const px = ctx.getImageData(0, 0, W, H);
+  for (let i = 3; i < px.data.length; i += 4) px.data[i] = px.data[i] * alpha[i - 3] / 255;
+  ctx.putImageData(px, 0, 0);
+  return out;
+}
+
+async function buildBGOutput(cutout, fmtVal, fillColor) {
+  let canvas = cutout;
+  if (fillColor !== 'transparent') {
+    canvas = document.createElement('canvas');
+    canvas.width = cutout.width; canvas.height = cutout.height;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = fillColor;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(cutout, 0, 0);
+  }
+  const png = await canvasToBlob(canvas, 'image/png');
+  if (canvas !== cutout) canvas.width = canvas.height = 0;
+  if (fmtVal !== 'svg') return { blob: png, ext: 'png' };
+  const dataUrl = await new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(png); });
+  const { width: w, height: h } = cutout;
+  const svg = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">\n  <image width="${w}" height="${h}" xlink:href="${dataUrl}"/>\n</svg>`;
+  return { blob: new Blob([svg], { type: 'image/svg+xml' }), ext: 'svg' };
+}
+
 window.doRemoveBG = async () => {
   if (!files.length) return;
-  const { file, img, url } = files[0];
-  const cdKey = document.getElementById('clipdropKey').value.trim();
+  const key       = document.getElementById('bgModel').value;
+  const fmtVal    = document.getElementById('bgFmt').value;
+  const fillColor = document.getElementById('bgFill').value;
+  const cfg       = BG_MODELS[key];
 
-  show('cardProcessing'); hide('cardBGResult');
+  resetBatch('removebg');
+  show('cardProcessing'); hide('cardBGResult'); hide('cardBGBatchResult');
   document.getElementById('procTitle').textContent = 'Removing Background';
+  progress(1, `Loading ${cfg.label} model…`);
 
-  let resultBlob = null;
-
-  // ── Priority 1: ClipDrop API (instant, reliable) ──
-  if (cdKey.length > 10) {
-    try {
-      progress(5, 'Sending to ClipDrop background removal…');
-      const srcCanvas = document.createElement('canvas');
-      srcCanvas.width = img.naturalWidth; srcCanvas.height = img.naturalHeight;
-      srcCanvas.getContext('2d').drawImage(img, 0, 0);
-      const srcBlob = await new Promise(r => srcCanvas.toBlob(r, 'image/png'));
-      const form = new FormData();
-      form.append('image_file', srcBlob, 'image.png');
-      const resp = await fetch('https://clipdrop-api.co/remove-background/v1', {
-        method: 'POST',
-        headers: { 'x-api-key': cdKey },
-        body: form
-      });
-      if (!resp.ok) throw new Error(`ClipDrop ${resp.status}`);
-      resultBlob = await resp.blob();
-      progress(90, 'Done!');
-      setAiStrip('bgDot','bgMsg','ready','Background removed via ClipDrop ✓');
-    } catch (e) {
-      console.warn('ClipDrop BG removal failed:', e);
-      progress(5, `ClipDrop failed (${e.message}) — trying browser model…`);
-      await tick();
-      resultBlob = null;
-    }
-  }
-
-  // ── Priority 2: Browser ML model (slow, ~50MB download) ──
-  if (!resultBlob) {
-    try {
-      progress(5, 'Loading browser AI model (~50 MB)…');
-      setAiStrip('bgDot','bgMsg','loading','Loading browser AI model — this takes a few minutes on first use…');
-      await ensureBGModel();
-      progress(15, 'Processing image…');
-      resultBlob = await bgRemoveFn(url, {
-        progress: (key, cur, total) => {
-          if (total > 0) progress(15 + (cur/total)*75, `${key}: ${Math.round(cur/total*100)}%`);
-        }
-      });
-      setAiStrip('bgDot','bgMsg','ready','Background removed via browser AI ✓');
-    } catch (e) {
-      hide('cardProcessing');
-      setAiStrip('bgDot','bgMsg','err','Background removal failed');
-      alert('Background removal failed.\n\nAdd a ClipDrop API key in the Upscale tab for instant reliable results.');
-      return;
-    }
-  }
-
-  try {
-    progress(93, 'Preparing download…');
-
-    progress(93, 'Preparing download…');
-    const resultURL = URL.createObjectURL(resultBlob);
-    document.getElementById('bgImgOrig').src = url;
-    document.getElementById('bgImgResult').src = resultURL;
-
-    // Build download file
-    const fmtVal  = document.getElementById('bgFmt').value;
-    const fillColor = document.getElementById('bgFill').value;
-    const base    = file.name.replace(/\.[^.]+$/, '');
-    let dlUrl, dlName;
-
-    if (fmtVal === 'svg') {
-      const tempImg = await loadImg(resultURL);
-      const c = document.createElement('canvas');
-      c.width = tempImg.naturalWidth; c.height = tempImg.naturalHeight;
-      c.getContext('2d').drawImage(tempImg, 0, 0);
-      const dataUrl = c.toDataURL('image/png');
-      const svgStr = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${tempImg.naturalWidth}" height="${tempImg.naturalHeight}" viewBox="0 0 ${tempImg.naturalWidth} ${tempImg.naturalHeight}">\n  <image width="${tempImg.naturalWidth}" height="${tempImg.naturalHeight}" xlink:href="${dataUrl}"/>\n</svg>`;
-      dlUrl  = URL.createObjectURL(new Blob([svgStr], { type:'image/svg+xml' }));
-      dlName = `${base}_no_bg.svg`;
-    } else if (fillColor !== 'transparent') {
-      const tempImg = await loadImg(resultURL);
-      const c = document.createElement('canvas');
-      c.width = tempImg.naturalWidth; c.height = tempImg.naturalHeight;
-      const ctx = c.getContext('2d');
-      ctx.fillStyle = fillColor;
-      ctx.fillRect(0, 0, c.width, c.height);
-      ctx.drawImage(tempImg, 0, 0);
-      dlUrl  = URL.createObjectURL(await new Promise(r => c.toBlob(r, 'image/png')));
-      dlName = `${base}_no_bg.png`;
-    } else {
-      dlUrl  = resultURL;
-      dlName = `${base}_no_bg.png`;
-    }
-
-    const dlBtn = document.getElementById('bgDlBtn');
-    dlBtn.href = dlUrl; dlBtn.download = dlName;
-
-    progress(100, 'Done!');
+  let run;
+  try { run = await ensureBGEngine(key); }
+  catch {
     hide('cardProcessing');
-    show('cardBGResult');
-
-  } catch (e) {
-    console.error('BG removal failed:', e);
-    hide('cardProcessing');
-    alert('Background removal failed. Try again — model may still be downloading.');
+    alert('Could not load the background removal model. Check your connection and try again.');
+    return;
   }
+
+  const n = files.length;
+  const rows = [];
+  for (let i = 0; i < n; i++) {
+    const { file, img, url: thumbUrl } = files[i];
+    markThumb(i, 'processing');
+    progress((i / n) * 98 + 1, n > 1 ? `Removing background ${i + 1}/${n}: ${file.name}…` : `Removing background from ${file.name}…`);
+    await tick();
+    try {
+      const { mask, mw, mh } = await run(file);
+      const cutout = applyMask(img, mask, mw, mh);
+      const { blob, ext } = await buildBGOutput(cutout, fmtVal, fillColor);
+      cutout.width = cutout.height = 0;
+      const outName = `${baseName(file)}_no_bg.${ext}`;
+      markThumb(i, 'done');
+      if (n === 1) { showBGResult(blob, outName, files[i].url); return; }
+      const { url, name } = addToBatch('removebg', blob, outName);
+      rows.push(batchRow(thumbUrl, name, `${img.naturalWidth}×${img.naturalHeight} · ${fmt(blob.size)} · ${ext.toUpperCase()}`, url));
+    } catch (err) {
+      console.error('Background removal failed:', err);
+      markThumb(i, 'failed');
+      rows.push(batchRow(thumbUrl, `${baseName(file)}_no_bg`, `Failed: ${esc(err.message || 'unknown error')}`, null));
+    }
+  }
+
+  progress(100, 'Done!');
+  hide('cardProcessing');
+  if (n === 1) { alert('Background removal failed. Try the other AI model.'); return; }
+  showBatch('removebg', 'cardBGBatchResult', rows);
 };
+
+function showBGResult(blob, name, origUrl) {
+  lastBGUrls.forEach(u => URL.revokeObjectURL(u));
+  const url = URL.createObjectURL(blob);
+  lastBGUrls = [url];
+  document.getElementById('bgImgOrig').src = origUrl;
+  document.getElementById('bgImgResult').src = url;
+  const dl = document.getElementById('bgDlBtn');
+  dl.href = url; dl.download = name;
+  progress(100, 'Done!');
+  hide('cardProcessing');
+  show('cardBGResult');
+}
 
 window.resetBG = () => { hide('cardBGResult'); };
 
 // ═══════════════════════════════════════════════════════════════
-// SHARED: Show compress/upscale result
+// SHARED: Show compress/upscale single-file result
 // ═══════════════════════════════════════════════════════════════
-function showProcessResult(blob, fmtVal, file, img) {
+function showProcessResult(blob, fmtVal, file, img, downloadName, note) {
   hide('cardProcessing');
   if (!blob) {
     alert('Could not reach target. Try a different strategy or a larger target size.');
     return;
   }
-  const url = URL.createObjectURL(blob);
+  if (lastResultUrl) URL.revokeObjectURL(lastResultUrl);
+  const url = lastResultUrl = URL.createObjectURL(blob);
   const rImg = document.getElementById('imgResult');
   rImg.onload = () => {
     document.getElementById('rDims').textContent =
@@ -1222,19 +1736,18 @@ function showProcessResult(blob, fmtVal, file, img) {
   };
   rImg.src = url;
   document.getElementById('rSizes').textContent = `${fmt(file.size)}  →  ${fmt(blob.size)}`;
-  document.getElementById('rFmt').textContent =
-    `${file.type.split('/')[1].toUpperCase()}  →  ${fmtVal.toUpperCase()}`;
+  const srcFmt = (file.type.split('/')[1] || file.name.split('.').pop() || '?').toUpperCase();
+  document.getElementById('rFmt').textContent = `${srcFmt}  →  ${fmtVal.toUpperCase()}`;
   const diff = blob.size - file.size;
   const pct  = Math.abs(diff / file.size * 100).toFixed(1);
+  const warn = note ? `<span class="badge badge-warn">⚠ ${esc(note)}</span>` : '';
   const rDelta = document.getElementById('rDelta');
-  if (diff < 0)      rDelta.innerHTML = `<span class="badge badge-down">▼ ${pct}% smaller</span>`;
-  else if (diff > 0) rDelta.innerHTML = `<span class="badge badge-up">▲ ${pct}% larger</span>`;
-  else               rDelta.innerHTML = `<span class="badge badge-neutral">No change</span>`;
+  if (diff < 0)      rDelta.innerHTML = `<span class="badge badge-down">▼ ${pct}% smaller</span>${warn}`;
+  else if (diff > 0) rDelta.innerHTML = `<span class="badge badge-up">▲ ${pct}% larger</span>${warn}`;
+  else               rDelta.innerHTML = `<span class="badge badge-neutral">No change</span>${warn}`;
 
-  const ext  = fmtVal === 'jpeg' ? 'jpg' : fmtVal;
-  const base = file.name.replace(/\.[^.]+$/, '') || 'image';
-  const dl   = document.getElementById('dlBtn');
-  dl.href = url; dl.download = `${base}_processed.${ext}`;
+  const dl = document.getElementById('dlBtn');
+  dl.href = url; dl.download = downloadName || `${baseName(file)}_processed.${extOf(fmtVal)}`;
   show('cardResult');
 }
 
@@ -1243,21 +1756,27 @@ window.resetResult = () => hide('cardResult');
 // ═══════════════════════════════════════════════════════════════
 // UTILITIES
 // ═══════════════════════════════════════════════════════════════
-function toBlob(img, w, h, mime, quality) {
-  return new Promise(res => {
-    const c = document.createElement('canvas');
-    c.width = w; c.height = h;
-    const ctx = c.getContext('2d');
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(img, 0, 0, w, h);
-    c.toBlob(res, mime, quality);
-  });
+/** Raster for PDF pages: JPEG with white behind transparency. */
+function imageToJpegDataUrl(img, quality) {
+  const c = document.createElement('canvas');
+  c.width = img.naturalWidth;
+  c.height = img.naturalHeight;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, c.width, c.height);
+  ctx.drawImage(img, 0, 0);
+  return c.toDataURL('image/jpeg', quality);
+}
+
+function canvasToBlob(canvas, mime, quality) {
+  return new Promise((res, rej) => canvas.toBlob(b => b ? res(b) : rej(new Error('Image is too large to encode')), mime, quality));
 }
 
 function fmtMime(f) {
-  return f === 'webp' ? 'image/webp' : f === 'png' ? 'image/png' : 'image/jpeg';
+  return { webp: 'image/webp', png: 'image/png', avif: 'image/avif' }[f] || 'image/jpeg';
 }
+function extOf(f)      { return f === 'jpeg' ? 'jpg' : f; }
+function baseName(file) { return file.name.replace(/\.[^.]+$/, '') || 'image'; }
 
 function fmt(bytes) {
   if (bytes >= 1048576) return (bytes/1048576).toFixed(2)+' MB';
@@ -1273,12 +1792,16 @@ function progress(pct, msg) {
 function show(id)          { document.getElementById(id)?.classList.remove('hidden'); }
 function hide(id)          { document.getElementById(id)?.classList.add('hidden'); }
 function toggle(id, vis)   { vis ? show(id) : hide(id); }
-function tick()            { return new Promise(r => setTimeout(r, 0)); }
-function esc(s)            { return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+// MessageChannel yields are not throttled in background tabs, unlike setTimeout
+const yieldChannel = new MessageChannel();
+const yieldQueue = [];
+yieldChannel.port1.onmessage = () => yieldQueue.shift()?.();
+function tick() { return new Promise(r => { yieldQueue.push(r); yieldChannel.port2.postMessage(0); }); }
+function esc(s)            { return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
 
 function markThumb(i, cls) {
   const el = document.getElementById(`ft${i}`);
-  if (el) { el.classList.remove('done','processing'); el.classList.add(cls); }
+  if (el) { el.classList.remove('done', 'processing', 'failed'); if (cls) el.classList.add(cls); }
 }
 
 function triggerDownload(url, name) {
@@ -1289,26 +1812,10 @@ function triggerDownload(url, name) {
 // ═══════════════════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════════════════
-syncUploadZone();
-
-// Restore saved API keys from localStorage
-(function restoreKeys() {
-  const cdKey  = localStorage.getItem('cdKey');
-  const repKey = localStorage.getItem('repKey');
-  if (cdKey)  document.getElementById('clipdropKey').value  = cdKey;
-  if (repKey) document.getElementById('replicateKey').value = repKey;
-  // If replicate key saved, switch to replicate provider
-  if (repKey && !cdKey) {
-    document.getElementById('upscaleProvider').value = 'replicate';
-    window.onProviderChange();
-  }
-  updateUpscaleStrip();
-})();
-
-// Pre-warm upscaler when its tab is clicked
-document.querySelector('[data-tab="upscale"]').addEventListener('click', () => {
-  if (!upscaler) initUpscaler();
-}, { once: true });
+updateConvertFmtUI();
+localStorage.removeItem('cdKey');
+localStorage.removeItem('repKey');
+warmCodecs();
 </script>
 </body>
 </html>
