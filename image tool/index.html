@@ -413,8 +413,8 @@
         <div class="field">
           <label>New Background</label>
           <select id="bgFill" class="full" onchange="syncBGOptions()">
+            <option value="#ffffff" selected>White — e-commerce ready</option>
             <option value="transparent">None — transparent</option>
-            <option value="#ffffff">White — e-commerce ready</option>
             <option value="#f0f0f0">Light grey</option>
             <option value="#000000">Black</option>
           </select>
@@ -422,8 +422,8 @@
         <div class="field">
           <label>Download Format</label>
           <select id="bgFmt" class="full" onchange="syncBGOptions()">
+            <option value="jpeg" selected>JPEG (.jpg) — e-commerce standard, solid background only</option>
             <option value="png">PNG — keeps transparency</option>
-            <option value="jpeg">JPEG (.jpg) — e-commerce standard, solid background only</option>
             <option value="webp">WebP — small files, keeps transparency</option>
             <option value="svg">SVG with embedded image</option>
           </select>
@@ -518,7 +518,7 @@
 // VERSION — APP_BUILD is stamped by deploy.ps1 on every publish
 // ═══════════════════════════════════════════════════════════════
 const APP_VERSION = '2.1';
-const APP_BUILD = '2026-10-10 22:21';
+const APP_BUILD = '2026-10-10 22:30';
 {
   const local = APP_BUILD.includes('BUILD');
   const host = location.hostname;
@@ -1770,7 +1770,7 @@ window.onBGModelChange = () => {
   else setAiStrip('bgDot', 'bgMsg', '', `${cfg.label} model (${cfg.size}) — downloads once when you click Remove Background`);
 };
 
-const BG_PREFS_KEY = 'bgOutputPrefs';
+const BG_PREFS_KEY = 'bgOutputPrefs.v2';
 
 window.syncBGOptions = () => {
   const fmtSel = document.getElementById('bgFmt');
