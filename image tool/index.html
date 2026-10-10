@@ -21,6 +21,11 @@
     header .hicon{font-size:26px;}
     header h1{font-size:20px;font-weight:700;}
     header p{color:var(--text2);font-size:12px;margin-top:1px;}
+    header .ver{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text2);
+      white-space:nowrap;}
+    header .ver-chan{font-size:10px;font-weight:800;letter-spacing:.06em;padding:3px 8px;border-radius:4px;}
+    header .ver-chan.beta{background:var(--yellow);color:#111;}
+    header .ver-chan.local{background:var(--purple);color:#fff;}
 
     /* ── Tabs ── */
     .tab-bar{background:var(--sur);border-bottom:1px solid var(--border);display:flex;padding:0 20px;gap:0;overflow-x:auto;}
@@ -202,6 +207,10 @@
   <div>
     <h1>Image Tools</h1>
     <p>Convert · Compress · Upscale · Remove Background — 100% in your browser, nothing uploaded, free</p>
+  </div>
+  <div class="ver">
+    <span class="ver-chan hidden" id="appChannel"></span>
+    <span id="appVersion"></span>
   </div>
 </header>
 
@@ -502,6 +511,26 @@
 </div>
 
 <script type="module">
+// ═══════════════════════════════════════════════════════════════
+// VERSION — APP_BUILD is stamped by deploy.ps1 on every publish
+// ═══════════════════════════════════════════════════════════════
+const APP_VERSION = '2.1';
+const APP_BUILD = '2026-10-10 16:22';
+{
+  const local = APP_BUILD.includes('BUILD');
+  const host = location.hostname;
+  const channel = local || !host ? 'local' : host.startsWith('beta--') ? 'beta' : 'production';
+  document.getElementById('appVersion').textContent =
+    `v${APP_VERSION} · ${local ? 'unpublished copy' : `build ${APP_BUILD}`}`;
+  if (channel !== 'production') {
+    const tag = document.getElementById('appChannel');
+    tag.textContent = channel === 'beta' ? 'BETA' : 'LOCAL';
+    tag.classList.add(channel);
+    tag.classList.remove('hidden');
+    document.title = `[${tag.textContent}] ${document.title}`;
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════
 // ENGINES (all free, all run on the user's device)
 // ═══════════════════════════════════════════════════════════════
