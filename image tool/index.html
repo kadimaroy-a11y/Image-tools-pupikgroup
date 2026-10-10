@@ -765,12 +765,12 @@ function codecWorkerMain() {
 
   // Highest quality that fits: probe the top, guess from the size ratio, then
   // interpolate in log-size space until within `tol` under the target.
-  async function searchQuality(canvas, target, tol, enc, step) {
+  async function searchQuality(canvas, target, tol, enc, step, minQ = 0.05) {
     let hi = { q: 0.95, blob: await enc(canvas, 0.95) };
     step(`Quality 95% → ${fmtB(hi.blob.size)}`);
     if (hi.blob.size <= target) return { ...hi, fits: true };
     let lo = null;
-    let q = clamp(0.95 * Math.pow(target / hi.blob.size, 0.8), 0.05, 0.9);
+    let q = clamp(0.95 * Math.pow(target / hi.blob.size, 0.8), minQ, 0.9);
     for (let i = 0; i < 9; i++) {
       const blob = await enc(canvas, q);
       step(`Quality ${Math.round(q * 100)}% → ${fmtB(blob.size)}`);
@@ -779,7 +779,7 @@ function codecWorkerMain() {
         if (blob.size >= target * (1 - tol)) break;
       } else {
         hi = { q, blob };
-        if (q <= 0.05) break;
+        if (q <= minQ) break;
       }
       if (lo && hi.q - lo.q <= 0.01) break;
       if (lo) {
@@ -787,7 +787,7 @@ function codecWorkerMain() {
         q = lo.q + (hi.q - lo.q) * clamp(t, 0.1, 0.9);
       } else {
         // Size flattens at low quality (WebP ≈ q^0.5), so overshoot downward to cross the target fast.
-        q = Math.max(0.05, hi.q * Math.pow(target / hi.blob.size, 2) * 0.93);
+        q = Math.max(minQ, hi.q * Math.pow(target / hi.blob.size, 2) * 0.93);
       }
     }
     return lo ? { ...lo, fits: true } : { ...hi, fits: false };
@@ -863,11 +863,13 @@ function codecWorkerMain() {
 
     if (strategy !== 'resize') {
       const full = render(bmp, W, H, fill);
-      const r = await searchQuality(full, target, TOL, enc, step);
+      // Below these, artifacts look worse than a smaller image, so "both" switches to resizing.
+      const minQ = strategy === 'both' ? (fmt === 'avif' ? 0.5 : 0.6) : 0.05;
+      const r = await searchQuality(full, target, TOL, enc, step, minQ);
       if (r.fits || strategy === 'quality') return finish(r.blob, W, H, !r.fits);
-      step('Minimum quality reached — resizing…');
+      step('Keeping quality high — resizing…');
     }
-    const q = strategy === 'resize' ? 0.92 : 0.82;
+    const q = strategy === 'resize' ? 0.92 : (fmt === 'avif' ? 0.6 : 0.8);
     const r = await searchScale(bmp, target, TOL, c => enc(c, q), step, fill);
     return finish(r.blob, r.canvas.width, r.canvas.height, r.blob.size > target);
   }
