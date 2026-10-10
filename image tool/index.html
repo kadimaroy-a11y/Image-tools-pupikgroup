@@ -411,22 +411,25 @@
           </select>
         </div>
         <div class="field">
-          <label>Download Format</label>
-          <select id="bgFmt" class="full">
-            <option value="png">PNG with transparency (recommended)</option>
-            <option value="svg">SVG with embedded transparent image</option>
+          <label>New Background</label>
+          <select id="bgFill" class="full" onchange="syncBGOptions()">
+            <option value="transparent">None — transparent</option>
+            <option value="#ffffff">White — e-commerce ready</option>
+            <option value="#f0f0f0">Light grey</option>
+            <option value="#000000">Black</option>
           </select>
         </div>
         <div class="field">
-          <label>Optional Background Fill</label>
-          <select id="bgFill" class="full">
-            <option value="transparent">Keep transparent</option>
-            <option value="#ffffff">White</option>
-            <option value="#000000">Black</option>
-            <option value="#f0f0f0">Light grey</option>
+          <label>Download Format</label>
+          <select id="bgFmt" class="full" onchange="syncBGOptions()">
+            <option value="png">PNG — keeps transparency</option>
+            <option value="jpeg">JPEG (.jpg) — e-commerce standard, solid background only</option>
+            <option value="webp">WebP — small files, keeps transparency</option>
+            <option value="svg">SVG with embedded image</option>
           </select>
         </div>
       </div>
+      <div class="hint hidden" id="bgJpegHint">JPEG can’t store transparency, so the background is set to white unless you pick another colour.</div>
       <button class="btn-main" id="btnRemoveBG" onclick="doRemoveBG()" disabled>✂️ Remove Background</button>
     </div>
 
@@ -515,7 +518,7 @@
 // VERSION — APP_BUILD is stamped by deploy.ps1 on every publish
 // ═══════════════════════════════════════════════════════════════
 const APP_VERSION = '2.1';
-const APP_BUILD = '2026-10-10 16:22';
+const APP_BUILD = '2026-10-10 22:21';
 {
   const local = APP_BUILD.includes('BUILD');
   const host = location.hostname;
@@ -1767,6 +1770,29 @@ window.onBGModelChange = () => {
   else setAiStrip('bgDot', 'bgMsg', '', `${cfg.label} model (${cfg.size}) — downloads once when you click Remove Background`);
 };
 
+const BG_PREFS_KEY = 'bgOutputPrefs';
+
+window.syncBGOptions = () => {
+  const fmtSel = document.getElementById('bgFmt');
+  const fill = document.getElementById('bgFill');
+  const jpeg = fmtSel.value === 'jpeg';
+  fill.querySelector('option[value="transparent"]').disabled = jpeg;
+  if (jpeg && fill.value === 'transparent') fill.value = '#ffffff';
+  document.getElementById('bgJpegHint').classList.toggle('hidden', !jpeg);
+  try { localStorage.setItem(BG_PREFS_KEY, JSON.stringify({ fmt: fmtSel.value, fill: fill.value })); } catch {}
+};
+
+try {
+  const saved = JSON.parse(localStorage.getItem(BG_PREFS_KEY) || 'null');
+  const pick = (id, v) => {
+    const sel = document.getElementById(id);
+    if (v && [...sel.options].some(o => o.value === v)) sel.value = v;
+  };
+  pick('bgFmt', saved?.fmt);
+  pick('bgFill', saved?.fill);
+} catch {}
+syncBGOptions();
+
 /** BiRefNet-lite 512: returns a sigmoid alpha mask at the model's 512×512 resolution. */
 async function loadBiRefNet(T, cfg, device, progress_callback) {
   const model = await T.AutoModel.from_pretrained(cfg.id, {
@@ -1842,6 +1868,7 @@ function applyMask(img, mask, mw, mh) {
 }
 
 async function buildBGOutput(cutout, fmtVal, fillColor) {
+  if (fmtVal === 'jpeg' && fillColor === 'transparent') fillColor = '#ffffff';
   let canvas = cutout;
   if (fillColor !== 'transparent') {
     canvas = document.createElement('canvas');
@@ -1851,13 +1878,29 @@ async function buildBGOutput(cutout, fmtVal, fillColor) {
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(cutout, 0, 0);
   }
-  const png = await canvasToBlob(canvas, 'image/png');
-  if (canvas !== cutout) canvas.width = canvas.height = 0;
-  if (fmtVal !== 'svg') return { blob: png, ext: 'png' };
-  const dataUrl = await new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(png); });
-  const { width: w, height: h } = cutout;
-  const svg = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">\n  <image width="${w}" height="${h}" xlink:href="${dataUrl}"/>\n</svg>`;
-  return { blob: new Blob([svg], { type: 'image/svg+xml' }), ext: 'svg' };
+  try {
+    if (fmtVal === 'jpeg' || fmtVal === 'webp') return { blob: await encodeBGOutput(canvas, fmtVal), ext: extOf(fmtVal) };
+    const png = await canvasToBlob(canvas, 'image/png');
+    if (fmtVal !== 'svg') return { blob: png, ext: 'png' };
+    const dataUrl = await new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(png); });
+    const { width: w, height: h } = cutout;
+    const svg = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">\n  <image width="${w}" height="${h}" xlink:href="${dataUrl}"/>\n</svg>`;
+    return { blob: new Blob([svg], { type: 'image/svg+xml' }), ext: 'svg' };
+  } finally {
+    if (canvas !== cutout) canvas.width = canvas.height = 0;
+  }
+}
+
+/** MozJPEG / WebP at 92% via the codec workers, falling back to the browser's own encoder. */
+async function encodeBGOutput(canvas, fmtVal) {
+  try {
+    const png = await canvasToBlob(canvas, 'image/png');
+    const { blob } = await runCodec('convert', { file: png, fmt: fmtVal, quality: 0.92 });
+    return blob;
+  } catch (err) {
+    if (isAbort(err)) throw err;
+    return canvasToBlob(canvas, `image/${fmtVal}`, 0.92);
+  }
 }
 
 window.doRemoveBG = runJob(async signal => {
