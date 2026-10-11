@@ -487,44 +487,10 @@
     <div class="proc-layout">
       <nav class="card proc-menu" aria-label="Procedures">
         <div class="card-title">Procedures</div>
-        <button class="proc-item active" data-proc="eshop">
-          <span class="pi-name">🛍️ E-shop Images</span>
-          <span class="pi-desc">White background · centered 2048² · WebP</span>
-        </button>
+        <div id="procMenu"></div>
       </nav>
-
-      <div class="proc-body">
-        <!-- E-shop Images -->
-        <div class="proc-pane" id="procEshop">
-          <div class="card">
-            <div class="card-title">E-shop Images</div>
-            <div class="ai-strip">
-              <div class="ai-dot" id="eshopDot"></div>
-              <span id="eshopMsg">BiRefNet + Real-ESRGAN AI (free, runs on your device) — loads when you open this tab</span>
-            </div>
-            <ol class="proc-steps">
-              <li>Remove the background and replace it with pure white</li>
-              <li>Center the product in a 2048 × 2048 square with a minimal border — upscaled with AI when needed</li>
-              <li>Save as WebP</li>
-            </ol>
-            <div class="fields">
-              <div class="field">
-                <label for="eshopMargin">Border Around Product</label>
-                <input type="range" id="eshopMargin" class="range" min="0" max="15" step="1" value="5" oninput="onEshopMargin()">
-                <div class="hint ok" id="eshopMarginHint"></div>
-              </div>
-            </div>
-            <button class="btn-main" id="btnEshop" onclick="doEshop()" disabled>🛍️ Run E-shop Images</button>
-          </div>
-          <div class="card hidden" id="cardEshopResult">
-            <div class="card-title">E-shop Images — Results</div>
-            <div class="batch-list" id="eshopBatchList"></div>
-            <div class="hidden" id="eshopZipRow" style="margin-top:12px;">
-              <button class="btn-dl" onclick="downloadBatchZip('eshop')">📦 Download All as ZIP</button>
-            </div>
-          </div>
-        </div>
-      </div>
+      <!-- One pane per entry in PROCEDURES (rendered by renderProcedures) -->
+      <div class="proc-body" id="procBody"></div>
     </div>
   </div>
 
@@ -585,7 +551,7 @@
 // VERSION — APP_BUILD is stamped by deploy.ps1 on every publish
 // ═══════════════════════════════════════════════════════════════
 const APP_VERSION = '2.1';
-const APP_BUILD = '2026-10-10 23:12';
+const APP_BUILD = '2026-10-11 17:42';
 {
   const local = APP_BUILD.includes('BUILD');
   const host = location.hostname;
@@ -634,11 +600,10 @@ let activeTab = 'convert';
 let lastResultUrl = null;
 let lastBGUrls = [];
 let job = null;           // AbortController of the running tool
-const batches = { convert: [], compress: [], upscale: [], removebg: [], eshop: [] };   // [{blob, name, url}]
+const batches = { convert: [], compress: [], upscale: [], removebg: [] };   // [{blob, name, url}]; procedures add their own
 const ZIP_NAMES = {
   convert: 'converted_images.zip', compress: 'compressed_images.zip',
   upscale: 'upscaled_images.zip',  removebg: 'no_bg_images.zip',
-  eshop: 'eshop_images.zip',
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -771,7 +736,8 @@ window.clearFiles = () => {
   refreshButtons();
   hide('cardResult'); hide('cardProcessing');
   hide('cardConvertResult'); hide('cardCompressResult'); hide('cardUpscaleResult');
-  hide('cardBGResult'); hide('cardBGBatchResult'); hide('cardEshopResult');
+  hide('cardBGResult'); hide('cardBGBatchResult');
+  document.querySelectorAll('.proc-result').forEach(c => c.classList.add('hidden'));
 };
 
 function refreshButtons() {
@@ -780,7 +746,7 @@ function refreshButtons() {
   setDis('btnCompress', !has);
   setDis('btnUpscale',  !has);
   setDis('btnRemoveBG', !has);
-  setDis('btnEshop',    !has);
+  document.querySelectorAll('.btn-proc').forEach(b => { b.disabled = !has; });
 }
 
 function setDis(id, v) { const el = document.getElementById(id); if (el) el.disabled = v; }
@@ -2057,27 +2023,77 @@ function showBGResult(blob, name, origUrl) {
 window.resetBG = () => { hide('cardBGResult'); };
 
 // ═══════════════════════════════════════════════════════════════
-// PROCEDURES — each one is a menu item (data-proc) plus a pane, with an optional warm-up when opened
+// PROCEDURES — product photos on pure white, centered in a 2048² square, saved as `fmt`.
+// Each entry gets its own menu item, pane, border setting and results list.
 // ═══════════════════════════════════════════════════════════════
 const PROCEDURES = {
-  eshop: { pane: 'procEshop', warm: () => warmEshop() },
+  eshop:   { name: 'E-shop Images',  icon: '🛍️', fmt: 'webp', quality: 0.9 },
+  konimbo: { name: 'Konimbo Format', icon: '🏷️', fmt: 'jpeg', quality: 0.92 },
 };
-let activeProc = 'eshop';
+const FMT_LABEL = { webp: 'WebP', jpeg: 'JPEG' };
+const SQUARE_SIZE = 2048;
+const SQUARE_AI_MAX_IN = 1024;      // 4× of this already exceeds 2048, so larger crops are pre-shrunk to save time
+const MASK_ON = 64;                 // mask value that counts as "product" when measuring the box
+let activeProc = Object.keys(PROCEDURES)[0];
 
-function openProcedure(key) {
-  activeProc = key;
-  document.querySelectorAll('.proc-item').forEach(b => b.classList.toggle('active', b.dataset.proc === key));
-  Object.entries(PROCEDURES).forEach(([k, p]) => toggle(p.pane, k === key));
-  PROCEDURES[key].warm?.();
+function renderProcedures() {
+  const entries = Object.entries(PROCEDURES);
+  document.getElementById('procMenu').innerHTML = entries.map(([k, p]) => `
+    <button class="proc-item" data-proc="${k}">
+      <span class="pi-name">${p.icon} ${p.name}</span>
+      <span class="pi-desc">White background · centered 2048² · ${FMT_LABEL[p.fmt]}</span>
+    </button>`).join('');
+  document.getElementById('procBody').innerHTML = entries.map(([k, p]) => `
+    <div class="proc-pane hidden" id="proc_${k}">
+      <div class="card">
+        <div class="card-title">${p.name}</div>
+        <div class="ai-strip">
+          <div class="ai-dot" id="${k}Dot"></div>
+          <span id="${k}Msg">BiRefNet + Real-ESRGAN AI (free, runs on your device) — loads when you open this procedure</span>
+        </div>
+        <ol class="proc-steps">
+          <li>Remove the background and replace it with pure white</li>
+          <li>Center the product in a 2048 × 2048 square with a minimal border — upscaled with AI when needed</li>
+          <li>Save as ${FMT_LABEL[p.fmt]}</li>
+        </ol>
+        <div class="fields">
+          <div class="field">
+            <label for="${k}Margin">Border Around Product</label>
+            <input type="range" id="${k}Margin" class="range" min="0" max="15" step="1" value="5" oninput="onProcMargin('${k}')">
+            <div class="hint ok" id="${k}MarginHint"></div>
+          </div>
+        </div>
+        <button class="btn-main btn-proc" onclick="runProcedure('${k}')" disabled>${p.icon} Run ${p.name}</button>
+      </div>
+      <div class="card hidden proc-result" id="${k}Result">
+        <div class="card-title">${p.name} — Results</div>
+        <div class="batch-list" id="${k}BatchList"></div>
+        <div class="hidden" id="${k}ZipRow" style="margin-top:12px;">
+          <button class="btn-dl" onclick="downloadBatchZip('${k}')">📦 Download All as ZIP</button>
+        </div>
+      </div>
+    </div>`).join('');
+  document.querySelectorAll('.proc-item').forEach(b => b.addEventListener('click', () => openProcedure(b.dataset.proc)));
+
+  for (const k of Object.keys(PROCEDURES)) {
+    batches[k] = [];
+    ZIP_NAMES[k] = `${k}_images.zip`;
+    try {
+      const saved = JSON.parse(localStorage.getItem(`${k}Prefs.v1`) || 'null');
+      if (Number.isFinite(saved?.margin)) document.getElementById(`${k}Margin`).value = Math.min(15, Math.max(0, saved.margin));
+    } catch {}
+    onProcMargin(k);
+  }
+  openProcedure(activeProc, false);
+  refreshButtons();
 }
 
-document.querySelectorAll('.proc-item').forEach(b => b.addEventListener('click', () => openProcedure(b.dataset.proc)));
-
-// ── E-shop images: white background, centered 2048² square, WebP ──
-const ESHOP_SIZE = 2048;
-const ESHOP_AI_MAX_IN = 1024;       // 4× of this already exceeds 2048, so larger crops are pre-shrunk to save time
-const ESHOP_PREFS_KEY = 'eshopPrefs.v1';
-const MASK_ON = 64;                 // mask value that counts as "product" when measuring the box
+function openProcedure(key, warm = true) {
+  activeProc = key;
+  document.querySelectorAll('.proc-item').forEach(b => b.classList.toggle('active', b.dataset.proc === key));
+  for (const k of Object.keys(PROCEDURES)) toggle(`proc_${k}`, k === key);
+  if (warm) warmProcedure(key);
+}
 
 /**
  * Tight box around the product in photo pixels, or null if the mask is empty.
@@ -2135,7 +2151,7 @@ function productBox(mask, mw, mh, full, W, H) {
  * upscales the photo crop with Real-ESRGAN when it is smaller than 2048, and composites it on
  * pure white through the separately scaled mask so edges stay clean and the background is #FFFFFF.
  */
-async function eshopSquare(img, maskC, box, margin, upscale, onTile, signal) {
+async function productSquare(img, maskC, box, margin, upscale, onTile, signal) {
   const side = Math.max(1, Math.ceil(Math.max(box.w, box.h) / (1 - 2 * margin)));
   const sqX = box.x + box.w / 2 - side / 2;
   const sqY = box.y + box.h / 2 - side / 2;
@@ -2155,26 +2171,26 @@ async function eshopSquare(img, maskC, box, margin, upscale, onTile, signal) {
   mctx.drawImage(maskC, -sqX, -sqY);
 
   let rgb;
-  if (side < ESHOP_SIZE && upscale) {
-    const aiIn = side > ESHOP_AI_MAX_IN ? finishCanvas(crop, ESHOP_AI_MAX_IN, ESHOP_AI_MAX_IN) : crop;
-    const big = await esrganUpscale(aiIn, ESHOP_SIZE, ESHOP_SIZE, onTile, signal);
+  if (side < SQUARE_SIZE && upscale) {
+    const aiIn = side > SQUARE_AI_MAX_IN ? finishCanvas(crop, SQUARE_AI_MAX_IN, SQUARE_AI_MAX_IN) : crop;
+    const big = await esrganUpscale(aiIn, SQUARE_SIZE, SQUARE_SIZE, onTile, signal);
     if (aiIn !== crop) aiIn.width = aiIn.height = 0;
-    rgb = finishCanvas(big, ESHOP_SIZE, ESHOP_SIZE);
+    rgb = finishCanvas(big, SQUARE_SIZE, SQUARE_SIZE);
     if (rgb !== big) big.width = big.height = 0;
-  } else if (side < ESHOP_SIZE) {
-    rgb = finishCanvas(await smartUpscale(crop, ESHOP_SIZE, ESHOP_SIZE), ESHOP_SIZE, ESHOP_SIZE);
+  } else if (side < SQUARE_SIZE) {
+    rgb = finishCanvas(await smartUpscale(crop, SQUARE_SIZE, SQUARE_SIZE), SQUARE_SIZE, SQUARE_SIZE);
   } else {
-    rgb = finishCanvas(crop, ESHOP_SIZE, ESHOP_SIZE);
+    rgb = finishCanvas(crop, SQUARE_SIZE, SQUARE_SIZE);
   }
   if (rgb !== crop) crop.width = crop.height = 0;
 
-  const m = finishCanvas(mcrop, ESHOP_SIZE, ESHOP_SIZE);
-  const md = m.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, ESHOP_SIZE, ESHOP_SIZE).data;
+  const m = finishCanvas(mcrop, SQUARE_SIZE, SQUARE_SIZE);
+  const md = m.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, SQUARE_SIZE, SQUARE_SIZE).data;
   if (m !== mcrop) m.width = m.height = 0;
   mcrop.width = mcrop.height = 0;
 
   const ctx = rgb.getContext('2d', { willReadFrequently: true });
-  const px = ctx.getImageData(0, 0, ESHOP_SIZE, ESHOP_SIZE);
+  const px = ctx.getImageData(0, 0, SQUARE_SIZE, SQUARE_SIZE);
   const d = px.data;
   for (let i = 0; i < d.length; i += 4) {
     const a = md[i] / 255, w = 255 * (1 - a);
@@ -2187,38 +2203,39 @@ async function eshopSquare(img, maskC, box, margin, upscale, onTile, signal) {
   return { canvas: rgb, side };
 }
 
-function eshopMargin() { return parseInt(document.getElementById('eshopMargin').value, 10) / 100; }
+function procMargin(k) { return parseInt(document.getElementById(`${k}Margin`).value, 10) / 100; }
 
-window.onEshopMargin = () => {
-  const pct = Math.round(eshopMargin() * 100);
-  document.getElementById('eshopMarginHint').textContent =
+function onProcMargin(k) {
+  const pct = Math.round(procMargin(k) * 100);
+  document.getElementById(`${k}MarginHint`).textContent =
     `${pct}% white border per side — the product fills ~${100 - 2 * pct}% of the 2048 × 2048 frame`;
-  try { localStorage.setItem(ESHOP_PREFS_KEY, JSON.stringify({ margin: pct })); } catch {}
-};
+  try { localStorage.setItem(`${k}Prefs.v1`, JSON.stringify({ margin: pct })); } catch {}
+}
+window.onProcMargin = onProcMargin;
 
-try {
-  const saved = JSON.parse(localStorage.getItem(ESHOP_PREFS_KEY) || 'null');
-  if (Number.isFinite(saved?.margin)) document.getElementById('eshopMargin').value = Math.min(15, Math.max(0, saved.margin));
-} catch {}
-onEshopMargin();
-
-function warmEshop() {
-  setAiStrip('eshopDot', 'eshopMsg', 'loading', 'Loading AI models — BiRefNet background removal + Real-ESRGAN upscaler (one-time download)…');
+function warmProcedure(k) {
+  const dot = `${k}Dot`, msg = `${k}Msg`;
+  setAiStrip(dot, msg, 'loading', 'Loading AI models — BiRefNet background removal + Real-ESRGAN upscaler (one-time download)…');
   Promise.all([ensureBGEngine('quality'), ensureUpscaler()])
     .then(([, up]) => {
       const gpu = bgDevices.quality === 'webgpu' && up.device === 'webgpu';
-      setAiStrip('eshopDot', 'eshopMsg', gpu ? 'ready' : 'warn', `BiRefNet + Real-ESRGAN ready — ${deviceLabel(gpu ? 'webgpu' : 'wasm')}`);
+      setAiStrip(dot, msg, gpu ? 'ready' : 'warn', `BiRefNet + Real-ESRGAN ready — ${deviceLabel(gpu ? 'webgpu' : 'wasm')}`);
     })
-    .catch(() => setAiStrip('eshopDot', 'eshopMsg', 'err', 'An AI model failed to load — check your connection and try again'));
+    .catch(() => setAiStrip(dot, msg, 'err', 'An AI model failed to load — check your connection and try again'));
 }
 
-window.doEshop = runJob(async signal => {
-  if (!files.length) return;
-  const margin = eshopMargin();
+const procRunners = {};
+window.runProcedure = k => (procRunners[k] ??= runJob(signal => runSquareProcedure(k, signal)))();
 
-  resetBatch('eshop');
-  hide('cardEshopResult');
-  beginJob('E-shop Images');
+async function runSquareProcedure(k, signal) {
+  if (!files.length) return;
+  const proc = PROCEDURES[k];
+  const label = FMT_LABEL[proc.fmt];
+  const margin = procMargin(k);
+
+  resetBatch(k);
+  hide(`${k}Result`);
+  beginJob(proc.name);
   progress(1, 'Loading BiRefNet background removal model…');
 
   let run;
@@ -2242,7 +2259,7 @@ window.doEshop = runJob(async signal => {
   for (let i = 0; i < n; i++) {
     if (signal.aborted) { stopped = n - i; break; }
     const { file, img, url: thumbUrl } = files[i];
-    const outName = `${baseName(file)}_eshop.webp`;
+    const outName = `${baseName(file)}_${k}.${extOf(proc.fmt)}`;
     const who = n > 1 ? `${i + 1}/${n} ${file.name}` : file.name;
     const at = f => ((i + f) / n) * 98 + 1;
     markThumb(i, 'processing');
@@ -2259,32 +2276,34 @@ window.doEshop = runJob(async signal => {
 
       progress(at(0.3), `Step 2/3 — Centering and upscaling: ${who}…`);
       await tick();
-      const { canvas, side } = await eshopSquare(img, maskC, box, margin, upscale,
+      const { canvas, side } = await productSquare(img, maskC, box, margin, upscale,
         (d, t) => progress(at(0.3 + 0.6 * d / t), `Step 2/3 — Upscaling ${who} — tile ${d}/${t}`), signal);
       maskC.width = maskC.height = 0;
 
-      progress(at(0.92), `Step 3/3 — Saving WebP: ${who}…`);
-      const blob = await encodeCanvas(canvas, 'webp', 0.9);
+      progress(at(0.92), `Step 3/3 — Saving ${label}: ${who}…`);
+      const blob = await encodeCanvas(canvas, proc.fmt, proc.quality);
       canvas.width = canvas.height = 0;
       markThumb(i, 'done');
 
       const notes = [];
       if (!found) notes.push('no product detected, whole photo used');
-      if (side < ESHOP_SIZE / 4) notes.push('low-resolution source');
-      const { url, name } = addToBatch('eshop', blob, outName);
+      if (side < SQUARE_SIZE / 4) notes.push('low-resolution source');
+      const { url, name } = addToBatch(k, blob, outName);
       rows.push(batchRow(thumbUrl, name,
-        `${W}×${H} → ${ESHOP_SIZE}×${ESHOP_SIZE} · ${fmt(blob.size)} · WEBP${notes.length ? ` · ⚠ ${notes.join(', ')}` : ''}`, url));
+        `${W}×${H} → ${SQUARE_SIZE}×${SQUARE_SIZE} · ${fmt(blob.size)} · ${label.toUpperCase()}${notes.length ? ` · ⚠ ${notes.join(', ')}` : ''}`, url));
     } catch (err) {
       if (isAbort(err)) { markThumb(i, null); stopped = n - i; break; }
-      console.error('E-shop procedure failed:', err);
+      console.error(`${proc.name} failed:`, err);
       markThumb(i, 'failed');
       rows.push(batchRow(thumbUrl, outName, `Failed: ${esc(err.message || 'unknown error')}`, null));
     }
   }
 
   progress(100, 'Done!');
-  endBatch('eshop', 'cardEshopResult', rows, stopped);
-});
+  endBatch(k, `${k}Result`, rows, stopped);
+}
+
+renderProcedures();
 
 // ═══════════════════════════════════════════════════════════════
 // SHARED: Show compress/upscale single-file result
