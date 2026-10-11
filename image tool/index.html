@@ -192,6 +192,16 @@
     .chk-row{display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-size:13px;font-weight:600;
       color:var(--text);text-transform:none;letter-spacing:normal;line-height:1.35;}
     .chk-row input{flex-shrink:0;margin-top:2px;width:18px;height:18px;accent-color:var(--accent);cursor:pointer;}
+    .folder-bar{display:flex;justify-content:center;}
+    .folder-bar .btn-sec{padding:8px 16px;font-size:12px;}
+    .folder-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;}
+    .folder-top .card-title{margin-bottom:0;}
+    .btn-small{padding:6px 12px;font-size:11px;}
+    .fp-row{display:flex;align-items:center;gap:12px;margin-bottom:10px;min-width:0;}
+    .fp-row .btn-sec{flex-shrink:0;min-width:150px;}
+    .fp-name{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
+    .fp-name.none{color:var(--text2);font-weight:400;}
+    .folder-summary{display:flex;flex-wrap:wrap;gap:8px 20px;font-size:13px;line-height:1.5;}
     .proc-layout{display:grid;grid-template-columns:220px 1fr;gap:14px;align-items:start;}
     .proc-menu{padding:14px;position:sticky;top:14px;}
     .proc-menu .card-title{margin-bottom:10px;padding:0 4px;}
@@ -261,6 +271,33 @@
     <input type="file" id="fileInput" multiple
       accept=".jpg,.jpeg,.png,.webp,.avif,.heic,.heif,.gif,.bmp,image/jpeg,image/png,image/webp,image/avif,image/heic,image/heif,image/gif,image/bmp">
     <div class="reject-bar" id="rejectBar"></div>
+  </div>
+
+  <!-- ═══ FOLDER MODE ═══ -->
+  <div class="folder-bar" id="folderBar">
+    <button class="btn-sec" id="btnFolderMode" onclick="enterFolderMode()">📂 Lots of images? Process a whole folder instead…</button>
+    <span class="hint hidden" id="folderUnsupported">Folder mode (whole folders in, results saved to a folder) needs Chrome or Edge on a computer.</span>
+  </div>
+  <div class="card hidden" id="cardFolder">
+    <div class="folder-top">
+      <div class="card-title">Folder Mode — for big batches</div>
+      <button class="btn-sec btn-small" onclick="exitFolderMode()">✕ Back to drag &amp; drop</button>
+    </div>
+    <div class="fp-row">
+      <button class="btn-sec" onclick="pickFolder('input')">📂 Input folder</button>
+      <span class="fp-name none" id="folderInName">Not chosen — the folder with your original images</span>
+    </div>
+    <div class="fp-row">
+      <button class="btn-sec" onclick="pickFolder('output')">💾 Output folder</button>
+      <span class="fp-name none" id="folderOutName">Not chosen — where the results are saved</span>
+    </div>
+    <div class="hint" id="folderStatus"></div>
+    <div class="info-note" style="margin-top:12px;">
+      Every image in the input folder (subfolders included) runs through the tool you start below, one at a time,
+      and is saved straight into the output folder with the same subfolders. Results already in the output folder
+      are skipped — so if you stop or close the page, just run it again to continue where it left off.
+      Keep this tab open while it runs.
+    </div>
   </div>
 
   <!-- ═══ FILE LIST ═══ -->
@@ -504,6 +541,13 @@
     </div>
   </div>
 
+  <!-- ═══ FOLDER RESULT (shared) ═══ -->
+  <div class="card hidden" id="cardFolderResult">
+    <div class="card-title" id="folderResTitle">Folder Results</div>
+    <div class="folder-summary" id="folderSummary"></div>
+    <div class="batch-list" id="folderResList" style="margin-top:14px;"></div>
+  </div>
+
   <!-- ═══ RESULT (compress / upscale single file) ═══ -->
   <div class="card hidden" id="cardResult">
     <div class="card-title">Result</div>
@@ -551,7 +595,7 @@
 // VERSION — APP_BUILD is stamped by deploy.ps1 on every publish
 // ═══════════════════════════════════════════════════════════════
 const APP_VERSION = '2.1';
-const APP_BUILD = '2026-10-11 17:42';
+const APP_BUILD = '2026-10-11 22:42';
 {
   const local = APP_BUILD.includes('BUILD');
   const host = location.hostname;
@@ -600,6 +644,7 @@ let activeTab = 'convert';
 let lastResultUrl = null;
 let lastBGUrls = [];
 let job = null;           // AbortController of the running tool
+const folder = { on: false, input: null, output: null };   // folder mode: directory handles
 const batches = { convert: [], compress: [], upscale: [], removebg: [] };   // [{blob, name, url}]; procedures add their own
 const ZIP_NAMES = {
   convert: 'converted_images.zip', compress: 'compressed_images.zip',
@@ -617,7 +662,8 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn));
     document.querySelectorAll('.panel').forEach(p => p.classList.add('hidden'));
     show('panel' + TAB_PANEL[activeTab]);
-    hide('cardResult'); hide('cardProcessing');
+    hide('cardResult');
+    if (!job) { hide('cardProcessing'); hide('cardFolderResult'); }
     refreshButtons();
     if (activeTab === 'upscale') ensureUpscaler().catch(() => {});
     if (activeTab === 'removebg') ensureBGEngine(document.getElementById('bgModel').value).catch(() => {});
@@ -741,7 +787,7 @@ window.clearFiles = () => {
 };
 
 function refreshButtons() {
-  const has = files.length > 0 && !job;
+  const has = (folder.on ? folderReady() : files.length > 0) && !job;
   setDis('btnConvert',  !has);
   setDis('btnCompress', !has);
   setDis('btnUpscale',  !has);
@@ -1285,6 +1331,7 @@ async function convertToPdf(quality, signal) {
 }
 
 window.doConvert = runJob(async signal => {
+  if (folder.on) return folderConvert(signal);
   if (!files.length) return;
   const fmtVal  = document.getElementById('cvtFmt').value;
   const quality = parseFloat(document.getElementById('cvtQuality').value);
@@ -1324,7 +1371,7 @@ function targetBytes() {
 }
 
 function updateCompressHint() {
-  if (!files.length) return;
+  if (!files.length || folder.on) return;
   const tb = targetBytes();
   const el = document.getElementById('hintCompress');
   if (!tb) { el.textContent = ''; return; }
@@ -1351,7 +1398,8 @@ function updateCompressHint() {
 document.getElementById('targetSize').addEventListener('input', updateCompressHint);
 document.getElementById('targetUnit').addEventListener('change', updateCompressHint);
 
-window.doCompress = runJob(async () => {
+window.doCompress = runJob(async signal => {
+  if (folder.on) return folderCompress(signal);
   if (!files.length) return;
   const tb = targetBytes();
   if (!tb) { alert('Enter a target size first.'); return; }
@@ -1526,7 +1574,7 @@ function upscaleTarget(img) {
 
 function updateUpscaleHint() {
   const el = document.getElementById('hintUpscale');
-  if (!files.length) { el.textContent = ''; return; }
+  if (!files.length || folder.on) { el.textContent = ''; return; }
   const { w, h, capped } = upscaleTarget(files[0].img);
   if (!w) { el.textContent = ''; return; }
   const more = files.length > 1 ? `  — first of ${files.length} files, each keeps its own proportions` : '';
@@ -1648,10 +1696,19 @@ function finishCanvas(src, w, h, fill) {
   return final;
 }
 
+async function upscaleOne(img, w, h, fmtVal, aiReady, onTile, signal) {
+  const big = aiReady ? await esrganUpscale(img, w, h, onTile, signal) : await smartUpscale(img, w, h);
+  const final = finishCanvas(big, w, h, fmtVal === 'jpeg' ? '#ffffff' : null);
+  const blob = await canvasToBlob(final, fmtMime(fmtVal), fmtVal === 'png' ? undefined : 0.95);
+  if (final !== big) final.width = final.height = 0;
+  big.width = big.height = 0;
+  return blob;
+}
+
 window.doUpscale = runJob(async signal => {
+  if (folder.on) return folderUpscale(signal);
   if (!files.length) return;
   const fmtVal = document.getElementById('fmtUpscale').value;
-  const mime   = fmtMime(fmtVal);
   if (!upscaleTarget(files[0].img).w) { alert('Enter a target width first.'); return; }
 
   resetBatch('upscale');
@@ -1679,13 +1736,8 @@ window.doUpscale = runJob(async signal => {
     progress((i / n) * 100, `${prefix}…`);
     await tick();
     try {
-      const big = aiReady
-        ? await esrganUpscale(img, w, h, (d, t) => progress(((i + d / t) / n) * 98, `${prefix} — tile ${d}/${t}`), signal)
-        : await smartUpscale(img, w, h);
-      const final = finishCanvas(big, w, h, fmtVal === 'jpeg' ? '#ffffff' : null);
-      const blob = await canvasToBlob(final, mime, fmtVal === 'png' ? undefined : 0.95);
-      if (final !== big) final.width = final.height = 0;
-      big.width = big.height = 0;
+      const blob = await upscaleOne(img, w, h, fmtVal, aiReady,
+        (d, t) => progress(((i + d / t) / n) * 98, `${prefix} — tile ${d}/${t}`), signal);
       markThumb(i, 'done');
       if (n === 1) { single = { blob, file, img, outName }; break; }
       const { url, name } = addToBatch('upscale', blob, outName);
@@ -1950,7 +2002,17 @@ async function encodeCanvas(canvas, fmtVal, quality = 0.92) {
   }
 }
 
+async function removeBGOne(run, file, img, fmtVal, fillColor, signal) {
+  const { mask, mw, mh } = await run(file);
+  signal.throwIfAborted();
+  const cutout = applyMask(img, mask, mw, mh);
+  const out = await buildBGOutput(cutout, fmtVal, fillColor);
+  cutout.width = cutout.height = 0;
+  return out;
+}
+
 window.doRemoveBG = runJob(async signal => {
+  if (folder.on) return folderRemoveBG(signal);
   if (!files.length) return;
   const key       = document.getElementById('bgModel').value;
   const fmtVal    = document.getElementById('bgFmt').value;
@@ -1980,11 +2042,7 @@ window.doRemoveBG = runJob(async signal => {
     progress((i / n) * 98 + 1, n > 1 ? `Removing background ${i + 1}/${n}: ${file.name}…` : `Removing background from ${file.name}…`);
     await tick();
     try {
-      const { mask, mw, mh } = await run(file);
-      signal.throwIfAborted();
-      const cutout = applyMask(img, mask, mw, mh);
-      const { blob, ext } = await buildBGOutput(cutout, fmtVal, fillColor);
-      cutout.width = cutout.height = 0;
+      const { blob, ext } = await removeBGOne(run, file, img, fmtVal, fillColor, signal);
       const outName = `${baseName(file)}_no_bg.${ext}`;
       markThumb(i, 'done');
       if (n === 1) { showBGResult(blob, outName, files[i].url); return; }
@@ -2227,31 +2285,68 @@ function warmProcedure(k) {
 const procRunners = {};
 window.runProcedure = k => (procRunners[k] ??= runJob(signal => runSquareProcedure(k, signal)))();
 
-async function runSquareProcedure(k, signal) {
-  if (!files.length) return;
-  const proc = PROCEDURES[k];
-  const label = FMT_LABEL[proc.fmt];
-  const margin = procMargin(k);
-
-  resetBatch(k);
-  hide(`${k}Result`);
-  beginJob(proc.name);
+/** Loads both models a procedure needs; null if background removal can't load (or Stop was pressed). */
+async function loadSquareEngines(signal) {
   progress(1, 'Loading BiRefNet background removal model…');
-
   let run;
   try { run = await untilAborted(ensureBGEngine('quality'), signal); }
   catch (err) {
-    hide('cardProcessing');
     if (!isAbort(err)) alert('Could not load the background removal model. Check your connection and try again.');
-    return;
+    return null;
   }
   progress(2, 'Loading Real-ESRGAN upscaler…');
   let upscale = true;
   try { await untilAborted(ensureUpscaler(), signal); }
   catch (err) {
-    if (isAbort(err)) return;
+    if (isAbort(err)) return null;
     upscale = false;
   }
+  return { run, upscale };
+}
+
+/** One photo through a procedure; `report(fraction, step)` describes progress within this photo. */
+async function squareOne(k, engines, file, img, report, signal) {
+  const proc = PROCEDURES[k];
+  const label = FMT_LABEL[proc.fmt];
+  report(0, 'Step 1/3 — Removing background');
+  await tick();
+  const { mask, mw, mh } = await engines.run(file);
+  signal.throwIfAborted();
+  const W = img.naturalWidth, H = img.naturalHeight;
+  const maskC = maskCanvas(mask, mw, mh, W, H);
+  const full = maskC.getContext('2d').getImageData(0, 0, W, H).data;
+  const found = productBox(mask, mw, mh, full, W, H);
+  const box = found || { x: 0, y: 0, w: W, h: H };
+
+  report(0.3, 'Step 2/3 — Centering and upscaling');
+  await tick();
+  const { canvas, side } = await productSquare(img, maskC, box, procMargin(k), engines.upscale,
+    (d, t) => report(0.3 + 0.6 * d / t, `Step 2/3 — Upscaling — tile ${d}/${t}`), signal);
+  maskC.width = maskC.height = 0;
+
+  report(0.92, `Step 3/3 — Saving ${label}`);
+  const blob = await encodeCanvas(canvas, proc.fmt, proc.quality);
+  canvas.width = canvas.height = 0;
+
+  const notes = [];
+  if (!found) notes.push('no product detected, whole photo used');
+  if (side < SQUARE_SIZE / 4) notes.push('low-resolution source');
+  return {
+    blob,
+    info: `${W}×${H} → ${SQUARE_SIZE}×${SQUARE_SIZE} · ${fmt(blob.size)} · ${label.toUpperCase()}${notes.length ? ` · ⚠ ${notes.join(', ')}` : ''}`,
+  };
+}
+
+async function runSquareProcedure(k, signal) {
+  if (folder.on) return folderProcedure(k, signal);
+  if (!files.length) return;
+  const proc = PROCEDURES[k];
+
+  resetBatch(k);
+  hide(`${k}Result`);
+  beginJob(proc.name);
+  const engines = await loadSquareEngines(signal);
+  if (!engines) { hide('cardProcessing'); return; }
 
   const n = files.length;
   const rows = [];
@@ -2263,34 +2358,11 @@ async function runSquareProcedure(k, signal) {
     const who = n > 1 ? `${i + 1}/${n} ${file.name}` : file.name;
     const at = f => ((i + f) / n) * 98 + 1;
     markThumb(i, 'processing');
-    progress(at(0), `Step 1/3 — Removing background: ${who}…`);
-    await tick();
     try {
-      const { mask, mw, mh } = await run(file);
-      signal.throwIfAborted();
-      const W = img.naturalWidth, H = img.naturalHeight;
-      const maskC = maskCanvas(mask, mw, mh, W, H);
-      const full = maskC.getContext('2d').getImageData(0, 0, W, H).data;
-      const found = productBox(mask, mw, mh, full, W, H);
-      const box = found || { x: 0, y: 0, w: W, h: H };
-
-      progress(at(0.3), `Step 2/3 — Centering and upscaling: ${who}…`);
-      await tick();
-      const { canvas, side } = await productSquare(img, maskC, box, margin, upscale,
-        (d, t) => progress(at(0.3 + 0.6 * d / t), `Step 2/3 — Upscaling ${who} — tile ${d}/${t}`), signal);
-      maskC.width = maskC.height = 0;
-
-      progress(at(0.92), `Step 3/3 — Saving ${label}: ${who}…`);
-      const blob = await encodeCanvas(canvas, proc.fmt, proc.quality);
-      canvas.width = canvas.height = 0;
+      const { blob, info } = await squareOne(k, engines, file, img, (f, step) => progress(at(f), `${step}: ${who}…`), signal);
       markThumb(i, 'done');
-
-      const notes = [];
-      if (!found) notes.push('no product detected, whole photo used');
-      if (side < SQUARE_SIZE / 4) notes.push('low-resolution source');
       const { url, name } = addToBatch(k, blob, outName);
-      rows.push(batchRow(thumbUrl, name,
-        `${W}×${H} → ${SQUARE_SIZE}×${SQUARE_SIZE} · ${fmt(blob.size)} · ${label.toUpperCase()}${notes.length ? ` · ⚠ ${notes.join(', ')}` : ''}`, url));
+      rows.push(batchRow(thumbUrl, name, info, url));
     } catch (err) {
       if (isAbort(err)) { markThumb(i, null); stopped = n - i; break; }
       console.error(`${proc.name} failed:`, err);
@@ -2530,6 +2602,394 @@ function triggerDownload(url, name) {
   const a = document.createElement('a');
   a.href = url; a.download = name; a.click();
 }
+
+// ═══════════════════════════════════════════════════════════════
+// FOLDER MODE — stream a whole input folder through any tool, one image at a time,
+// writing each result straight into the output folder (same subfolders).
+// Results that already exist are skipped, so a stopped run resumes where it left off.
+// ═══════════════════════════════════════════════════════════════
+const FOLDER_KEEP_ROWS = 50;
+
+if (!('showDirectoryPicker' in window)) { hide('btnFolderMode'); show('folderUnsupported'); }
+
+function folderReady() { return folder.on && !!folder.input && !!folder.output; }
+
+window.enterFolderMode = () => {
+  if (job) return;
+  folder.on = true;
+  hide('uploadZone'); hide('cardFiles'); hide('folderBar'); show('cardFolder');
+  document.getElementById('hintCompress').textContent = '';
+  document.getElementById('hintUpscale').textContent = '';
+  refreshButtons();
+  renderFolderStatus();
+};
+
+window.exitFolderMode = () => {
+  if (job) return;
+  folder.on = false;
+  show('uploadZone'); show('folderBar'); hide('cardFolder'); hide('cardFolderResult');
+  renderFileList();
+  refreshButtons();
+  updateCompressHint();
+  updateUpscaleHint();
+};
+
+window.pickFolder = async which => {
+  if (job) return;
+  let handle;
+  try { handle = await showDirectoryPicker({ id: `pupik-${which}`, mode: which === 'output' ? 'readwrite' : 'read' }); }
+  catch (err) { if (err.name !== 'AbortError') alert(`Could not open that folder: ${err.message}`); return; }
+  const other = folder[which === 'input' ? 'output' : 'input'];
+  if (other && await other.isSameEntry(handle)) {
+    alert('Choose a different folder for the results, so they don’t get mixed in with your originals.');
+    return;
+  }
+  folder[which] = handle;
+  const el = document.getElementById(which === 'input' ? 'folderInName' : 'folderOutName');
+  el.textContent = `📁 ${handle.name}`;
+  el.classList.remove('none');
+  refreshButtons();
+  renderFolderStatus();
+};
+
+let folderScan = 0;
+async function renderFolderStatus() {
+  const el = document.getElementById('folderStatus');
+  if (!folder.input) { el.className = 'hint'; el.textContent = ''; return; }
+  const scan = ++folderScan;
+  el.className = 'hint';
+  el.textContent = 'Counting images…';
+  try {
+    const n = (await listFolderImages()).length;
+    if (scan !== folderScan) return;
+    el.className = n ? 'hint ok' : 'hint warn';
+    el.textContent = !n ? '⚠ No supported images in this folder (JPG, PNG, WebP, AVIF, HEIC, GIF, BMP).'
+      : `✓ ${n.toLocaleString()} image${n > 1 ? 's' : ''} found in “${folder.input.name}”` +
+        (folder.output ? ` — results go to “${folder.output.name}”. Now press the button of the tool you want.` : ' — now choose an output folder.');
+  } catch (err) {
+    if (scan !== folderScan) return;
+    el.className = 'hint err';
+    el.textContent = `⚠ Could not read the folder: ${err.message}`;
+  }
+}
+
+/** Every supported image under the input folder (skipping the output folder if it's inside), in natural order. */
+async function listFolderImages() {
+  const out = [];
+  async function walk(dir, path) {
+    for await (const [name, handle] of dir.entries()) {
+      if (name.startsWith('.')) continue;
+      if (handle.kind === 'directory') {
+        if (folder.output && await handle.isSameEntry(folder.output)) continue;
+        await walk(handle, path ? `${path}/${name}` : name);
+      } else if (SUPPORTED_EXT.has(name.split('.').pop().toLowerCase())) {
+        out.push({ handle, name, path });
+      }
+    }
+  }
+  await walk(folder.input, '');
+  const coll = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+  return out.sort((a, b) => coll.compare(a.path, b.path) || coll.compare(a.name, b.name));
+}
+
+async function ensurePermission(handle, mode) {
+  if (await handle.queryPermission({ mode }) === 'granted') return true;
+  return await handle.requestPermission({ mode }) === 'granted';
+}
+
+async function outDir(path, create) {
+  let dir = folder.output;
+  for (const part of path ? path.split('/') : []) dir = await dir.getDirectoryHandle(part, { create });
+  return dir;
+}
+
+async function outExists(path, name) {
+  try { await (await outDir(path, false)).getFileHandle(name); return true; }
+  catch { return false; }
+}
+
+/** The file only appears in the folder once fully written, so a stopped run never leaves half a file. */
+async function writeOut(path, name, blob) {
+  const fh = await (await outDir(path, true)).getFileHandle(name, { create: true });
+  const w = await fh.createWritable();
+  try { await w.write(blob); await w.close(); }
+  catch (err) { await w.abort().catch(() => {}); throw err; }
+}
+
+async function freeOutName(path, name) {
+  let unique = name, n = 2;
+  while (await outExists(path, unique)) unique = name.replace(/(\.[^.]+)?$/, ` (${n++})$1`);
+  return unique;
+}
+
+async function readFolderImage(item, needImg) {
+  let file = await item.handle.getFile();
+  if (isHeicFile(file)) file = await heicToJpeg(file);
+  if (!needImg) return { file };
+  const url = URL.createObjectURL(file);
+  try { return { file, url, img: await loadImg(url) }; }
+  catch { URL.revokeObjectURL(url); throw new Error('Could not read this image'); }
+}
+
+const baseOf = name => name.replace(/\.[^.]+$/, '') || 'image';
+const relPath = (path, name) => path ? `${path}/${name}` : name;
+
+function fmtDuration(ms) {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.round(s / 60);
+  return m < 60 ? `${m} min` : `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
+function folderRow(name, info, ok) {
+  return `
+    <div class="batch-item${ok ? '' : ' failed'}">
+      <div class="bi-info">
+        <div class="bi-name" title="${esc(name)}">${esc(name)}</div>
+        <div class="bi-size">${info}</div>
+      </div>
+    </div>`;
+}
+
+/**
+ * Runs `work({file, img}, report, signal) → {blob, info}` on every image of the input folder.
+ * `lanes` > 1 runs that many images at once (codec-worker tools). `prepare()` loads models (false = abort).
+ * A result without a blob counts as done but writes nothing; `finish(stopped)` may write a final file and return a note.
+ */
+async function runFolder({ title, outName, work, needImg = true, lanes = 1, prepare, finish, resume = true }, signal) {
+  hide('cardFolderResult');
+  beginJob(title);
+  progress(0, 'Reading the input folder…');
+  let items;
+  try {
+    if (!await ensurePermission(folder.input, 'read') || !await ensurePermission(folder.output, 'readwrite')) {
+      alert('The browser needs permission to read the input folder and save into the output folder.');
+      return;
+    }
+    items = await listFolderImages();
+  } catch (err) { alert(`Could not read the input folder: ${err.message}`); return; }
+  if (!items.length) { alert('No supported images found in the input folder.'); return; }
+  if (prepare && !await prepare()) return;
+
+  let wakeLock = null;
+  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { /* not critical */ }
+
+  const total = items.length;
+  const claimed = new Set();
+  const failures = [], recent = [];
+  let next = 0, finished = 0, saved = 0, skipped = 0, failed = 0, worked = 0, workStart = 0;
+  const t0 = performance.now();
+  const eta = () => worked
+    ? ` · about ${fmtDuration((performance.now() - workStart) / worked * (total - finished))} left` : '';
+
+  const lane = async () => {
+    while (!signal.aborted && next < total) {
+      const idx = next++;
+      const item = items[idx];
+      const rel = relPath(item.path, item.name);
+      const want = outName(item);
+      let name = want, n = 2;
+      while (claimed.has(relPath(item.path, name).toLowerCase())) name = want.replace(/(\.[^.]+)?$/, ` (${n++})$1`);
+      claimed.add(relPath(item.path, name).toLowerCase());
+      const report = (f, step) => progress(((finished + (lanes > 1 ? 0 : Math.min(1, f))) / total) * 100,
+        `${step} — ${(idx + 1).toLocaleString()}/${total.toLocaleString()}: ${rel}${eta()}`);
+      let entry = null;
+      try {
+        if (resume && await outExists(item.path, name)) {
+          skipped++;
+          if (skipped % 25 === 0) { progress((finished / total) * 100, `Skipping images already done… ${finished}/${total}`); await tick(); }
+          continue;
+        }
+        workStart ||= performance.now();
+        report(0, 'Working on');
+        entry = await readFolderImage(item, needImg);
+        const { blob, info } = await work(entry, report, signal);
+        if (blob) await writeOut(item.path, name, blob);
+        saved++;
+        worked++;
+        recent.push(folderRow(blob ? relPath(item.path, name) : rel, info, true));
+        if (recent.length > FOLDER_KEEP_ROWS) recent.shift();
+      } catch (err) {
+        if (isAbort(err)) break;
+        console.error(`${title} failed on ${rel}:`, err);
+        failed++;
+        worked++;
+        if (failures.length < 500) failures.push(folderRow(rel, `Failed: ${esc(err.message || 'unknown error')}`, false));
+      } finally {
+        if (entry?.url) URL.revokeObjectURL(entry.url);
+        finished++;
+        if (lanes > 1) report(0, 'Finished');
+      }
+    }
+  };
+
+  try {
+    await Promise.all(Array.from({ length: Math.min(lanes, total) }, lane));
+    const left = total - saved - skipped - failed;
+    let note = '';
+    if (finish) {
+      try { note = await finish(left > 0) || ''; }
+      catch (err) { note = `<span style="color:var(--red)">Could not save: ${esc(err.message)}</span>`; }
+    }
+    progress(100, 'Done!');
+    showFolderResult(title, { saved, skipped, failed, left, ms: performance.now() - t0 }, failures.concat(recent.reverse()), note);
+  } finally {
+    wakeLock?.release().catch(() => {});
+  }
+}
+
+function showFolderResult(title, s, rows, note) {
+  document.getElementById('folderResTitle').textContent = `Folder Results — ${title}`;
+  const parts = [`<span>✅ <b>${s.saved.toLocaleString()}</b> done — saved in “${esc(folder.output.name)}”</span>`];
+  if (s.skipped) parts.push(`<span>⏭ ${s.skipped.toLocaleString()} already done earlier — skipped</span>`);
+  if (s.failed)  parts.push(`<span style="color:var(--red)">❌ ${s.failed.toLocaleString()} failed (listed first below)</span>`);
+  if (s.left)    parts.push(`<span style="color:var(--yellow)">⏹ ${s.left.toLocaleString()} not processed — press the button again to continue</span>`);
+  parts.push(`<span>⏱ ${fmtDuration(s.ms)}</span>`);
+  if (note) parts.push(`<span>${note}</span>`);
+  document.getElementById('folderSummary').innerHTML = parts.join('');
+  document.getElementById('folderResList').innerHTML = rows.join('');
+  toggle('folderResList', rows.length > 0);
+  hide('cardProcessing');
+  show('cardFolderResult');
+}
+
+async function folderConvert(signal) {
+  const fmtVal  = document.getElementById('cvtFmt').value;
+  const quality = parseFloat(document.getElementById('cvtQuality').value);
+  if (fmtVal === 'pdf') return folderPdf(quality, signal);
+  const q = fmtVal === 'png' ? 1 : quality;
+  return runFolder({
+    title: `Converting to ${fmtVal.toUpperCase()}`,
+    outName: item => `${baseOf(item.name)}.${extOf(fmtVal)}`,
+    needImg: false,
+    lanes: codecPool.size,
+    work: async ({ file }) => {
+      const r = await runCodec('convert', { file, fmt: fmtVal, quality: q });
+      return { blob: r.blob, info: `${sizeChange(file.size, r.blob.size)} · ${fmtVal.toUpperCase()}` };
+    },
+  }, signal);
+}
+
+async function folderPdf(quality, signal) {
+  try { await loadScript(JSPDF_URL); }
+  catch { alert('Failed to load PDF library. Check your connection and try again.'); return; }
+  const jsPDF = window.jspdf?.jsPDF;
+  if (!jsPDF) { alert('PDF library did not load correctly.'); return; }
+  const newDoc = () => new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+
+  if (!document.getElementById('cvtPdfCombine').checked) {
+    return runFolder({
+      title: 'Converting to PDF',
+      outName: item => `${baseOf(item.name)}.pdf`,
+      work: async ({ file, img }) => {
+        const doc = newDoc();
+        addImageToPdfPage(doc, img, quality);
+        const blob = doc.output('blob');
+        return { blob, info: `${sizeChange(file.size, blob.size)} · PDF` };
+      },
+    }, signal);
+  }
+
+  const doc = newDoc();
+  let pages = 0;
+  return runFolder({
+    title: 'Combining into one PDF',
+    outName: item => item.name,
+    resume: false,
+    work: async ({ img }) => {
+      if (pages++) doc.addPage();
+      addImageToPdfPage(doc, img, quality);
+      return { info: `Page ${pages}` };
+    },
+    finish: async stopped => {
+      if (stopped || !pages) return 'Stopped — the combined PDF was not saved.';
+      const blob = doc.output('blob');
+      const name = await freeOutName('', 'converted_images.pdf');
+      await writeOut('', name, blob);
+      return `📄 Saved as <b>${esc(name)}</b> (${pages} pages · ${fmt(blob.size)})`;
+    },
+  }, signal);
+}
+
+async function folderCompress(signal) {
+  const tb = targetBytes();
+  if (!tb) { alert('Enter a target size first.'); return; }
+  const fmtVal   = document.getElementById('fmtCompress').value;
+  const strategy = document.getElementById('strategyCompress').value;
+  return runFolder({
+    title: `Compressing to ~${fmt(tb)} each`,
+    outName: item => `${baseOf(item.name)}.${extOf(fmtVal)}`,
+    needImg: false,
+    lanes: codecPool.size,
+    work: async ({ file }) => {
+      const r = await runCodec('compress', { file, fmt: fmtVal, target: tb, strategy });
+      const warn = r.missed ? ' · <span style="color:var(--yellow)">⚠ above target</span>' : '';
+      return { blob: r.blob, info: `${sizeChange(file.size, r.blob.size)} · ${r.width}×${r.height} · ${fmtVal.toUpperCase()}${warn}` };
+    },
+  }, signal);
+}
+
+async function folderUpscale(signal) {
+  const fmtVal = document.getElementById('fmtUpscale').value;
+  const sf = document.getElementById('scaleFactor').value;
+  const label = sf === 'custom' ? `${parseInt(document.getElementById('customWidth').value) || 0}w` : `${sf}x`;
+  if (label === '0w') { alert('Enter a target width first.'); return; }
+  let aiReady = true;
+  return runFolder({
+    title: 'Upscaling',
+    outName: item => `${baseOf(item.name)}_upscaled_${label}.${extOf(fmtVal)}`,
+    prepare: async () => {
+      progress(1, 'Loading Real-ESRGAN AI…');
+      try { await untilAborted(ensureUpscaler(), signal); }
+      catch (err) { if (isAbort(err)) return false; aiReady = false; }
+      return true;
+    },
+    work: async ({ img }, report, signal) => {
+      const { w, h } = upscaleTarget(img);
+      const blob = await upscaleOne(img, w, h, fmtVal, aiReady, (d, t) => report(d / t, `Upscaling — tile ${d}/${t}`), signal);
+      return { blob, info: `${img.naturalWidth}×${img.naturalHeight} → ${w}×${h} · ${fmt(blob.size)}` };
+    },
+  }, signal);
+}
+
+async function folderRemoveBG(signal) {
+  const key       = document.getElementById('bgModel').value;
+  const fmtVal    = document.getElementById('bgFmt').value;
+  const fillColor = document.getElementById('bgFill').value;
+  let run;
+  return runFolder({
+    title: 'Removing Background',
+    outName: item => `${baseOf(item.name)}_no_bg.${fmtVal === 'svg' ? 'svg' : extOf(fmtVal)}`,
+    prepare: async () => {
+      progress(1, `Loading ${BG_MODELS[key].label} model…`);
+      try { run = await untilAborted(ensureBGEngine(key), signal); return true; }
+      catch (err) {
+        if (!isAbort(err)) alert('Could not load the background removal model. Check your connection and try again.');
+        return false;
+      }
+    },
+    work: async ({ file, img }, report, signal) => {
+      report(0, 'Removing background');
+      const { blob, ext } = await removeBGOne(run, file, img, fmtVal, fillColor, signal);
+      return { blob, info: `${img.naturalWidth}×${img.naturalHeight} · ${fmt(blob.size)} · ${ext.toUpperCase()}` };
+    },
+  }, signal);
+}
+
+async function folderProcedure(k, signal) {
+  const proc = PROCEDURES[k];
+  let engines = null;
+  return runFolder({
+    title: proc.name,
+    outName: item => `${baseOf(item.name)}_${k}.${extOf(proc.fmt)}`,
+    prepare: async () => !!(engines = await loadSquareEngines(signal)),
+    work: ({ file, img }, report, signal) => squareOne(k, engines, file, img, report, signal),
+  }, signal);
+}
+
+window.addEventListener('beforeunload', e => {
+  if (job) { e.preventDefault(); e.returnValue = ''; }
+});
 
 // ═══════════════════════════════════════════════════════════════
 // INIT
