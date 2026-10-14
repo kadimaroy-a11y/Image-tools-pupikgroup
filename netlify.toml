@@ -1,0 +1,13 @@
+# Netlify serves only the login shell. The tools page lives in Supabase Storage.
+[build]
+  publish = "image tool"
+  command = ""
+  # Skip the build (and its deploy credits) unless the shell or this file changed.
+  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- 'image tool/' netlify.toml"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Cache-Control = "no-cache"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "same-origin"

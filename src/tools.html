@@ -1,0 +1,3408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Image Tools</title>
+  <!-- JSZip — batch ZIP downloads -->
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <!-- supabase-js — sign-in state, admin calls -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js"></script>
+  <style>
+    :root {
+      --bg:#0f1117; --sur:#1a1d27; --sur2:#22263a; --sur3:#2a2f45;
+      --border:#2e3350; --text:#e2e8f0; --text2:#8892b0;
+      --accent:#4f7ef8; --green:#22c55e; --yellow:#f59e0b;
+      --red:#ef4444; --purple:#a855f7;
+    }
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{background:var(--bg);color:var(--text);font:14px/1.5 'Segoe UI',sans-serif;min-height:100vh;}
+
+    /* ── Header ── */
+    header{background:var(--sur);border-bottom:1px solid var(--border);padding:14px 28px;display:flex;align-items:center;gap:14px;}
+    header .hicon{font-size:26px;}
+    header h1{font-size:20px;font-weight:700;}
+    header p{color:var(--text2);font-size:12px;margin-top:1px;}
+    header .ver{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text2);
+      white-space:nowrap;}
+    header .ver-chan{font-size:10px;font-weight:800;letter-spacing:.06em;padding:3px 8px;border-radius:4px;}
+    header .ver-chan.beta{background:var(--yellow);color:#111;}
+    header .ver-chan.local{background:var(--purple);color:#fff;}
+
+    /* ── Tabs ── */
+    .tab-bar{background:var(--sur);border-bottom:1px solid var(--border);display:flex;padding:0 20px;gap:0;overflow-x:auto;}
+    .tab-btn{padding:13px 20px;font-size:13px;font-weight:600;background:none;border:none;
+      color:var(--text2);cursor:pointer;border-bottom:3px solid transparent;
+      transition:all .18s;white-space:nowrap;display:flex;align-items:center;gap:6px;}
+    .tab-btn:hover{color:var(--text);}
+    .tab-btn.active{color:var(--accent);border-bottom-color:var(--accent);}
+
+    /* ── Layout ── */
+    main{max-width:920px;margin:0 auto;padding:24px 18px;display:flex;flex-direction:column;gap:14px;}
+
+    /* ── Card ── */
+    .card{background:var(--sur);border:1px solid var(--border);border-radius:12px;padding:22px;}
+    .card-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text2);margin-bottom:16px;}
+
+    /* ── Upload Zone ── */
+    .upload-zone{border:2px dashed var(--border);border-radius:12px;background:var(--sur);
+      padding:44px 20px;text-align:center;cursor:pointer;transition:all .2s;position:relative;}
+    .upload-zone:hover,.upload-zone.drag{border-color:var(--accent);background:rgba(79,126,248,.06);}
+    .upload-zone .uz-icon{font-size:44px;margin-bottom:10px;line-height:1;}
+    .upload-zone h2{font-size:17px;font-weight:600;margin-bottom:5px;}
+    .upload-zone p{color:var(--text2);font-size:12px;}
+    .upload-zone .fmt-tag{display:inline-block;background:var(--sur2);border:1px solid var(--border);
+      border-radius:4px;padding:1px 7px;font-size:11px;font-weight:600;margin:2px;}
+    .upload-zone input{display:none;}
+    .reject-bar{position:absolute;bottom:0;left:0;right:0;background:rgba(239,68,68,.12);
+      color:var(--red);border-radius:0 0 10px 10px;padding:7px 14px;font-size:12px;font-weight:600;
+      text-align:center;opacity:0;transition:opacity .25s;pointer-events:none;}
+    .reject-bar.show{opacity:1;}
+
+    /* ── File Thumbs ── */
+    .file-list{display:flex;flex-wrap:wrap;gap:10px;}
+    .file-thumb{background:var(--sur2);border:1px solid var(--border);border-radius:8px;
+      overflow:hidden;width:100px;text-align:center;position:relative;flex-shrink:0;}
+    .file-thumb img{width:100%;height:68px;object-fit:cover;display:block;}
+    .file-thumb .ft-name{font-size:10px;color:var(--text2);padding:3px 6px;
+      overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .file-thumb .ft-size{font-size:10px;color:var(--text2);padding-bottom:4px;}
+    .file-thumb .ft-remove{position:absolute;top:3px;right:3px;background:rgba(0,0,0,.65);
+      border:none;color:#fff;width:18px;height:18px;border-radius:50%;font-size:10px;
+      cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;}
+    .file-thumb.done::after{content:'✓';position:absolute;top:3px;left:3px;background:rgba(34,197,94,.85);
+      color:#fff;border-radius:4px;padding:0 5px;font-size:10px;font-weight:700;}
+    .file-thumb.processing::after{content:'…';position:absolute;top:3px;left:3px;background:rgba(79,126,248,.85);
+      color:#fff;border-radius:4px;padding:0 5px;font-size:10px;font-weight:700;}
+    .file-thumb.failed::after{content:'!';position:absolute;top:3px;left:3px;background:rgba(239,68,68,.9);
+      color:#fff;border-radius:4px;padding:0 6px;font-size:10px;font-weight:700;}
+
+    /* ── Form Fields ── */
+    .fields{display:flex;flex-direction:column;gap:14px;}
+    .field label{display:block;font-size:11px;font-weight:700;color:var(--text2);
+      text-transform:uppercase;letter-spacing:.05em;margin-bottom:7px;}
+    .frow{display:flex;gap:8px;}
+    input[type=number],select,input[type=text]{background:var(--sur2);border:1px solid var(--border);
+      border-radius:8px;color:var(--text);padding:10px 13px;font-size:13px;outline:none;transition:border .18s;}
+    input[type=number]:focus,select:focus,input[type=text]:focus{border-color:var(--accent);}
+    input[type=number]{flex:1;}
+    select{cursor:pointer;}
+    select.full,input[type=text].full{width:100%;}
+    .hint{font-size:12px;margin-top:6px;color:var(--text2);line-height:1.4;}
+    .hint.ok{color:var(--green);}
+    .hint.warn{color:var(--yellow);}
+    .hint.err{color:var(--red);}
+
+    /* ── Buttons ── */
+    .btn-main{width:100%;padding:13px;border:none;border-radius:10px;background:var(--accent);
+      color:#fff;font-size:14px;font-weight:700;cursor:pointer;transition:opacity .18s;margin-top:6px;}
+    .btn-main:hover{opacity:.88;}
+    .btn-main:disabled{opacity:.32;cursor:not-allowed;}
+    .btn-sec{padding:11px 18px;border:1px solid var(--border);border-radius:10px;background:var(--sur2);
+      color:var(--text);font-size:13px;font-weight:600;cursor:pointer;transition:opacity .18s;}
+    .btn-sec:hover{opacity:.8;}
+    .btn-dl{display:block;width:100%;padding:12px;border:none;border-radius:10px;background:var(--green);
+      color:#fff;font-size:14px;font-weight:700;text-align:center;text-decoration:none;
+      cursor:pointer;transition:opacity .18s;}
+    .btn-dl:hover{opacity:.88;}
+    .btn-row{display:flex;gap:10px;margin-top:12px;}
+    .btn-row>*{flex:1;}
+
+    /* ── Progress ── */
+    .prog-bar{height:6px;background:var(--sur2);border-radius:3px;overflow:hidden;margin:10px 0 6px;}
+    .prog-bar div{height:100%;background:var(--accent);border-radius:3px;transition:width .15s;}
+
+    /* ── Result (compress/upscale) ── */
+    .result-imgs{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px;}
+    .img-box{background:var(--sur2);border-radius:8px;overflow:hidden;aspect-ratio:4/3;
+      display:flex;align-items:center;justify-content:center;position:relative;}
+    .img-box.checker,.checker-bg{
+      background-image:linear-gradient(45deg,#2a2a2a 25%,transparent 25%),
+        linear-gradient(-45deg,#2a2a2a 25%,transparent 25%),
+        linear-gradient(45deg,transparent 75%,#2a2a2a 75%),
+        linear-gradient(-45deg,transparent 75%,#2a2a2a 75%);
+      background-size:20px 20px;
+      background-position:0 0,0 10px,10px -10px,-10px 0;
+      background-color:#333;}
+    .img-box img{max-width:100%;max-height:100%;object-fit:contain;}
+    .img-label{position:absolute;top:8px;left:8px;background:rgba(0,0,0,.65);
+      border-radius:4px;padding:2px 8px;font-size:11px;font-weight:600;}
+    .stats{display:flex;flex-direction:column;}
+    .srow{display:flex;justify-content:space-between;align-items:center;
+      padding:8px 0;border-bottom:1px solid var(--border);}
+    .srow:last-child{border-bottom:none;}
+    .srow .slabel{color:var(--text2);font-size:12px;}
+    .srow .sval{font-weight:700;font-size:13px;}
+    .badge{display:inline-block;padding:2px 9px;border-radius:5px;font-size:12px;font-weight:700;}
+    .badge-down{background:rgba(34,197,94,.14);color:var(--green);}
+    .badge-up{background:rgba(79,126,248,.14);color:var(--accent);}
+    .badge-neutral{background:var(--sur2);color:var(--text2);}
+    .badge-warn{background:rgba(245,158,11,.14);color:var(--yellow);margin-left:6px;}
+
+    /* ── Batch result list ── */
+    .batch-list{display:flex;flex-direction:column;gap:8px;}
+    .batch-item{display:flex;align-items:center;gap:11px;background:var(--sur2);
+      border-radius:8px;padding:9px 13px;border:1px solid var(--border);}
+    .batch-item img{width:38px;height:38px;object-fit:cover;border-radius:4px;flex-shrink:0;}
+    .batch-item .bi-info{flex:1;min-width:0;}
+    .batch-item .bi-name{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .batch-item .bi-size{font-size:11px;color:var(--text2);}
+    .batch-item.failed .bi-size{color:var(--red);}
+    .batch-item a.dl-link{font-size:12px;color:var(--accent);text-decoration:none;white-space:nowrap;font-weight:600;}
+    .batch-item a.dl-link:hover{text-decoration:underline;}
+    .batch-item img.zoomable{width:56px;height:56px;}
+    .batch-item .bi-actions{display:flex;align-items:center;gap:14px;}
+    .batch-item button.view-link{background:none;border:none;padding:0;font:inherit;font-size:12px;
+      font-weight:600;color:var(--text2);cursor:pointer;white-space:nowrap;}
+    .batch-item button.view-link:hover{color:var(--text);}
+    .batch-item.stopped .bi-size{color:var(--yellow);}
+
+    /* ── Zoom viewer ── */
+    .zoomable{cursor:zoom-in;}
+    .zoom-tip{position:absolute;bottom:8px;right:8px;background:rgba(0,0,0,.65);border-radius:4px;
+      padding:2px 8px;font-size:11px;font-weight:600;pointer-events:none;}
+    #viewer{position:fixed;inset:0;z-index:1000;background:#07090e;display:flex;flex-direction:column;}
+    #viewer .v-bar{display:flex;align-items:center;gap:8px;padding:10px 16px;background:var(--sur);
+      border-bottom:1px solid var(--border);flex-wrap:wrap;}
+    #viewer .v-title{flex:1;min-width:120px;font-size:13px;font-weight:600;overflow:hidden;
+      text-overflow:ellipsis;white-space:nowrap;}
+    #viewer .v-tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;background:var(--accent);}
+    #viewer .v-tag.orig{background:var(--yellow);color:#111;}
+    #viewer .v-bar .btn-sec,#viewer .v-bar .btn-dl{width:auto;padding:8px 14px;font-size:12px;}
+    #viewer .v-stage{flex:1;overflow:auto;display:flex;padding:16px;}
+    #viewer .v-stage img{margin:auto;display:block;flex-shrink:0;cursor:zoom-in;user-select:none;-webkit-user-drag:none;}
+    #viewer.actual .v-stage img{cursor:grab;}
+    #viewer.actual.dragging .v-stage img{cursor:grabbing;}
+    #viewer .v-hint{text-align:center;font-size:11px;color:var(--text2);padding:6px;}
+
+    /* ── Engine status strip ── */
+    .ai-strip{display:flex;align-items:center;gap:8px;background:rgba(168,85,247,.07);
+      border:1px solid rgba(168,85,247,.2);border-radius:8px;padding:9px 13px;margin-bottom:14px;font-size:12px;}
+    .ai-dot{width:8px;height:8px;border-radius:50%;background:var(--text2);flex-shrink:0;}
+    .ai-dot.ready{background:var(--green);}
+    .ai-dot.loading{background:var(--yellow);animation:pulse 1s infinite;}
+    .ai-dot.warn{background:var(--yellow);}
+    .ai-dot.err{background:var(--red);}
+    @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.3;}}
+
+    /* ── Misc ── */
+    .two-col{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+    .hidden{display:none!important;}
+    .sep{border:none;border-top:1px solid var(--border);margin:4px 0;}
+    .info-note{font-size:12px;color:var(--text2);line-height:1.5;padding:10px 13px;
+      background:var(--sur2);border-radius:8px;border-left:3px solid var(--accent);}
+    .chk-row{display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-size:13px;font-weight:600;
+      color:var(--text);text-transform:none;letter-spacing:normal;line-height:1.35;}
+    .chk-row input{flex-shrink:0;margin-top:2px;width:18px;height:18px;accent-color:var(--accent);cursor:pointer;}
+    .folder-bar{display:flex;justify-content:center;}
+    .folder-bar .btn-sec{padding:8px 16px;font-size:12px;}
+    .folder-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;}
+    .folder-top .card-title{margin-bottom:0;}
+    .btn-small{padding:6px 12px;font-size:11px;}
+    .fp-row{display:flex;align-items:center;gap:12px;margin-bottom:10px;min-width:0;}
+    .fp-row .btn-sec{flex-shrink:0;min-width:150px;}
+    .fp-name{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
+    .fp-name.none{color:var(--text2);font-weight:400;}
+    .folder-summary{display:flex;flex-wrap:wrap;gap:8px 20px;font-size:13px;line-height:1.5;}
+    .proc-layout{display:grid;grid-template-columns:220px 1fr;gap:14px;align-items:start;}
+    .proc-menu{padding:14px;position:sticky;top:14px;}
+    .proc-menu .card-title{margin-bottom:10px;padding:0 4px;}
+    .proc-item{display:flex;flex-direction:column;gap:3px;width:100%;text-align:left;background:none;
+      border:1px solid transparent;border-radius:8px;padding:10px 12px;color:var(--text);cursor:pointer;
+      transition:background .15s;}
+    .proc-item+.proc-item{margin-top:4px;}
+    .proc-item:hover{background:var(--sur2);}
+    .proc-item.active{background:rgba(79,126,248,.12);border-color:rgba(79,126,248,.35);}
+    .proc-item .pi-name{font-size:13px;font-weight:700;}
+    .proc-item.active .pi-name{color:var(--accent);}
+    .proc-item .pi-desc{font-size:11px;color:var(--text2);line-height:1.35;}
+    .proc-body,.proc-pane{display:flex;flex-direction:column;gap:14px;min-width:0;}
+    .proc-steps{margin:0 0 16px 20px;font-size:13px;line-height:1.7;color:var(--text);}
+    .proc-steps li::marker{color:var(--accent);font-weight:700;}
+    input.range{width:100%;accent-color:var(--accent);cursor:pointer;}
+
+    @media(max-width:700px){
+      .proc-layout{grid-template-columns:1fr;}
+      .proc-menu{position:static;}
+    }
+    @media(max-width:600px){
+      .result-imgs,.two-col{grid-template-columns:1fr;}
+      .tab-btn{padding:12px 13px;font-size:12px;}
+      .tab-btn .ticon{font-size:14px;}
+    }
+
+    /* ── Account ── */
+    header .who{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);white-space:nowrap;}
+    header .who b{color:var(--text);font-weight:600;}
+    .link-btn{background:none;border:1px solid var(--border);color:var(--text2);border-radius:6px;padding:4px 9px;
+      font-size:11px;cursor:pointer;}
+    .link-btn:hover{color:var(--text);border-color:var(--text2);}
+    .tab-bar.pending{visibility:hidden;}
+    .notice{max-width:920px;margin:40px auto;padding:24px;text-align:center;color:var(--text2);}
+    body.no-tabs main{display:none;}
+    body.admin-mode main > :not(#panelAdmin){display:none !important;}
+    dialog.modal{background:var(--sur);color:var(--text);border:1px solid var(--border);border-radius:12px;
+      padding:22px;width:min(420px,calc(100vw - 32px));margin:auto;}
+    dialog.modal::backdrop{background:rgba(0,0,0,.6);}
+    dialog.modal form{display:flex;flex-direction:column;gap:10px;}
+    dialog.modal label{font-size:12px;color:var(--text2);display:flex;flex-direction:column;gap:4px;}
+    dialog.modal input[type=text],dialog.modal input[type=password]{background:var(--sur2);border:1px solid var(--border);
+      border-radius:8px;color:var(--text);padding:9px;font-size:13px;}
+    dialog.modal .row{display:flex;gap:8px;justify-content:flex-end;margin-top:6px;}
+    dialog.modal .err{color:var(--red);font-size:12px;min-height:1.1em;}
+    @media(max-width:600px){ header{flex-wrap:wrap;} header .who{width:100%;} }
+
+    /* ── Admin ── */
+    .adm-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;}
+    .adm-bar input,.adm-bar select{background:var(--sur2);border:1px solid var(--border);border-radius:8px;color:var(--text);
+      padding:8px;font-size:13px;}
+    .adm-bar input{flex:1;min-width:160px;}
+    .adm-table-wrap{overflow-x:auto;}
+    table.adm{width:100%;border-collapse:collapse;font-size:12px;}
+    table.adm th,table.adm td{padding:8px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top;}
+    table.adm th{color:var(--text2);font-weight:600;}
+    table.adm tr.revoked td{opacity:.55;}
+    .adm-badge{font-size:10px;font-weight:800;padding:2px 6px;border-radius:4px;background:var(--purple);color:#fff;margin-left:4px;}
+    .adm-status.on{color:var(--green);} .adm-status.off{color:var(--red);}
+    .adm-actions{display:flex;flex-wrap:wrap;gap:4px;}
+    .adm-tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
+    .adm-tabs label{flex-direction:row !important;align-items:center;gap:6px;color:var(--text) !important;}
+    .adm-bar .btn-main,dialog.modal .btn-main{width:auto;padding:9px 18px;font-size:13px;}
+    .adm-msg{font-size:12px;color:var(--text2);min-height:1.2em;word-break:break-word;}
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="hicon">🛠️</div>
+  <div>
+    <h1>Image Tools</h1>
+    <p>Convert · Compress · Upscale · Remove Background — 100% in your browser, nothing uploaded, free</p>
+  </div>
+  <div class="ver">
+    <span class="ver-chan hidden" id="appChannel"></span>
+    <span id="appVersion"></span>
+  </div>
+  <div class="who hidden" id="whoBox">
+    <span><b id="whoName"></b> <span id="whoCompany"></span></span>
+    <button class="link-btn" id="btnChangePw">Change password</button>
+    <button class="link-btn" id="btnSignOut">Sign out</button>
+  </div>
+</header>
+
+<div class="tab-bar pending">
+  <button class="tab-btn active" data-tab="convert"><span class="ticon">🔄</span> Convert</button>
+  <button class="tab-btn" data-tab="compress"><span class="ticon">📦</span> Compress</button>
+  <button class="tab-btn" data-tab="upscale"><span class="ticon">🔍</span> Upscale</button>
+  <button class="tab-btn" data-tab="removebg"><span class="ticon">✂️</span> Remove BG</button>
+  <button class="tab-btn" data-tab="procedures"><span class="ticon">⚡</span> Procedures</button>
+  <button class="tab-btn hidden" data-tab="admin"><span class="ticon">👥</span> Admin</button>
+</div>
+<div class="notice hidden" id="noTabsMsg">No tools are enabled for your account. Contact your administrator.</div>
+
+<main>
+
+  <!-- ═══ DROP ZONE ═══ -->
+  <div class="upload-zone" id="uploadZone">
+    <div class="uz-icon">📁</div>
+    <h2 id="uzTitle">Drop images here (multiple allowed)</h2>
+    <p id="uzSub">or click to browse</p>
+    <div style="margin-top:10px" id="uzFmts">
+      <span class="fmt-tag">JPG</span>
+      <span class="fmt-tag">PNG</span>
+      <span class="fmt-tag">WebP</span>
+      <span class="fmt-tag">AVIF</span>
+      <span class="fmt-tag">HEIC</span>
+      <span class="fmt-tag">GIF</span>
+      <span class="fmt-tag">BMP</span>
+    </div>
+    <input type="file" id="fileInput" multiple
+      accept=".jpg,.jpeg,.png,.webp,.avif,.heic,.heif,.gif,.bmp,image/jpeg,image/png,image/webp,image/avif,image/heic,image/heif,image/gif,image/bmp">
+    <div class="reject-bar" id="rejectBar"></div>
+  </div>
+
+  <!-- ═══ FOLDER MODE ═══ -->
+  <div class="folder-bar" id="folderBar">
+    <button class="btn-sec" id="btnFolderMode" onclick="enterFolderMode()">📂 Lots of images? Process a whole folder instead…</button>
+    <span class="hint hidden" id="folderUnsupported">Folder mode (whole folders in, results saved to a folder) needs Chrome or Edge on a computer.</span>
+  </div>
+  <div class="card hidden" id="cardFolder">
+    <div class="folder-top">
+      <div class="card-title">Folder Mode — for big batches</div>
+      <button class="btn-sec btn-small" onclick="exitFolderMode()">✕ Back to drag &amp; drop</button>
+    </div>
+    <div class="fp-row">
+      <button class="btn-sec" onclick="pickFolder('input')">📂 Input folder</button>
+      <span class="fp-name none" id="folderInName">Not chosen — the folder with your original images</span>
+    </div>
+    <div class="fp-row">
+      <button class="btn-sec" onclick="pickFolder('output')">💾 Output folder</button>
+      <span class="fp-name none" id="folderOutName">Not chosen — where the results are saved</span>
+    </div>
+    <div class="hint" id="folderStatus"></div>
+    <div class="info-note" style="margin-top:12px;">
+      Every image in the input folder (subfolders included) runs through the tool you start below, one at a time,
+      and is saved straight into the output folder with the same subfolders. Results already in the output folder
+      are skipped — so if you stop or close the page, just run it again to continue where it left off.
+      Keep this tab open while it runs.
+    </div>
+  </div>
+
+  <!-- ═══ FILE LIST ═══ -->
+  <div class="card hidden" id="cardFiles">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+      <div class="card-title" style="margin-bottom:0" id="filesTitle">Loaded Files</div>
+      <button class="btn-sec" style="padding:5px 13px;font-size:11px;" onclick="clearFiles()">Clear All</button>
+    </div>
+    <div class="file-list" id="fileList"></div>
+  </div>
+
+  <!-- ═══════════════════════════════ CONVERT ═══════════════════════════════ -->
+  <div id="panelConvert" class="panel">
+    <div class="card">
+      <div class="card-title">Convert Format</div>
+      <div class="ai-strip">
+        <div class="ai-dot codec-dot"></div>
+        <span class="codec-msg">Engine: MozJPEG · WebP · AVIF · OxiPNG (WebAssembly, background workers)</span>
+      </div>
+      <div class="fields">
+        <div class="field">
+          <label>Convert To</label>
+          <select id="cvtFmt" class="full" onchange="updateConvertFmtUI()">
+            <option value="jpeg">JPEG (.jpg) — best for photos (transparent areas → white)</option>
+            <option value="png">PNG (.png) — lossless, supports transparency (OxiPNG optimized)</option>
+            <option value="webp">WebP (.webp) — modern, small &amp; efficient</option>
+            <option value="avif">AVIF (.avif) — smallest files, slower to encode</option>
+            <option value="pdf">PDF (.pdf) — one page per image, A4</option>
+          </select>
+        </div>
+        <div class="field" id="cvtQualityWrap">
+          <label>Quality (JPEG / WebP / AVIF / PDF pages)</label>
+          <select id="cvtQuality" class="full">
+            <option value="1.0">Maximum (100%)</option>
+            <option value="0.92" selected>High (92%) — recommended</option>
+            <option value="0.80">Good (80%)</option>
+            <option value="0.65">Medium (65%)</option>
+            <option value="0.50">Low (50%)</option>
+          </select>
+          <div class="hint" id="cvtJpegHint">JPEG and PDF embed photos as JPEG: transparent pixels are composited on <strong>white</strong> so edges don’t turn black.</div>
+        </div>
+        <div class="field hidden" id="cvtPdfCombineWrap">
+          <label class="chk-row">
+            <input type="checkbox" id="cvtPdfCombine" checked>
+            <span>Combine all images into one PDF</span>
+          </label>
+          <div class="hint">If unchecked, each image becomes its own PDF. With multiple files, use <strong>Download All as ZIP</strong>.</div>
+        </div>
+      </div>
+      <button class="btn-main" id="btnConvert" onclick="doConvert()" disabled>🔄 Convert Files</button>
+    </div>
+    <div class="card hidden" id="cardConvertResult">
+      <div class="card-title">Converted Files</div>
+      <div class="batch-list" id="convertBatchList"></div>
+      <div class="hidden" id="convertZipRow" style="margin-top:12px;">
+        <button class="btn-dl" onclick="downloadBatchZip('convert')">📦 Download All as ZIP</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════ COMPRESS ═══════════════════════════════ -->
+  <div id="panelCompress" class="panel hidden">
+    <div class="card">
+      <div class="card-title">Compress to Target Size</div>
+      <div class="ai-strip">
+        <div class="ai-dot codec-dot"></div>
+        <span class="codec-msg">Engine: MozJPEG · WebP · AVIF · OxiPNG (WebAssembly, background workers)</span>
+      </div>
+      <div class="fields">
+        <div class="field">
+          <label>Target File Size</label>
+          <div class="frow">
+            <input type="number" id="targetSize" min="1" value="200" placeholder="200">
+            <select id="targetUnit" style="min-width:78px;">
+              <option value="kb">KB</option>
+              <option value="mb">MB</option>
+            </select>
+          </div>
+          <div class="hint" id="hintCompress"></div>
+        </div>
+        <div class="field">
+          <label>Output Format</label>
+          <select id="fmtCompress" class="full">
+            <option value="jpeg">JPEG — best compatibility</option>
+            <option value="webp">WebP — modern &amp; efficient</option>
+            <option value="avif">AVIF — smallest files (slower)</option>
+            <option value="png">PNG — lossless optimize first, then resize if needed</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Strategy</label>
+          <select id="strategyCompress" class="full">
+            <option value="quality">Quality reduction only (keep dimensions)</option>
+            <option value="both" selected>Quality + resize if needed</option>
+            <option value="resize">Resize only (keep high quality)</option>
+          </select>
+        </div>
+      </div>
+      <button class="btn-main" id="btnCompress" onclick="doCompress()" disabled>📦 Compress Files</button>
+    </div>
+    <div class="card hidden" id="cardCompressResult">
+      <div class="card-title">Compressed Files</div>
+      <div class="batch-list" id="compressBatchList"></div>
+      <div class="hidden" id="compressZipRow" style="margin-top:12px;">
+        <button class="btn-dl" onclick="downloadBatchZip('compress')">📦 Download All as ZIP</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════ UPSCALE ═══════════════════════════════ -->
+  <div id="panelUpscale" class="panel hidden">
+    <div class="card">
+      <div class="card-title">Upscale Resolution</div>
+      <div class="ai-strip">
+        <div class="ai-dot" id="upscaleDot"></div>
+        <span id="upscaleMsg">Real-ESRGAN x4 AI (free, runs on your device) — loads when you open this tab</span>
+      </div>
+      <div class="fields">
+        <div class="field">
+          <label>Scale Factor</label>
+          <select id="scaleFactor" class="full" onchange="onScaleChange()">
+            <option value="1.5">1.5× — subtle boost</option>
+            <option value="2" selected>2× — double resolution</option>
+            <option value="3">3× — high resolution</option>
+            <option value="4">4× — very high resolution</option>
+            <option value="custom">Custom width…</option>
+          </select>
+        </div>
+        <div class="field hidden" id="fieldCustomW">
+          <label>Target Width (px)</label>
+          <input type="number" id="customWidth" min="1" placeholder="e.g. 3840" style="width:100%;" oninput="updateUpscaleHint()">
+          <div class="hint">Height scales proportionally for each image.</div>
+        </div>
+        <div class="field">
+          <label>Output Format</label>
+          <select id="fmtUpscale" class="full">
+            <option value="jpeg">JPEG</option>
+            <option value="webp">WebP</option>
+            <option value="png">PNG (lossless)</option>
+          </select>
+        </div>
+        <div class="hint ok" id="hintUpscale"></div>
+      </div>
+      <button class="btn-main" id="btnUpscale" onclick="doUpscale()" disabled>🔍 Upscale Images</button>
+    </div>
+    <div class="card hidden" id="cardUpscaleResult">
+      <div class="card-title">Upscaled Files</div>
+      <div class="batch-list" id="upscaleBatchList"></div>
+      <div class="hidden" id="upscaleZipRow" style="margin-top:12px;">
+        <button class="btn-dl" onclick="downloadBatchZip('upscale')">📦 Download All as ZIP</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════ REMOVE BG ═══════════════════════════════ -->
+  <div id="panelRemoveBG" class="panel hidden">
+    <div class="card">
+      <div class="card-title">Remove Background</div>
+      <div class="ai-strip">
+        <div class="ai-dot" id="bgDot"></div>
+        <span id="bgMsg">Background removal AI (free, runs on your device) — loads when you open this tab</span>
+      </div>
+      <div class="fields">
+        <div class="field">
+          <label>AI Model</label>
+          <select id="bgModel" class="full" onchange="onBGModelChange()">
+            <option value="quality" selected>Best quality — BiRefNet (~94 MB, one-time download)</option>
+            <option value="fast">Fast — ISNet (~42 MB, one-time download)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>New Background</label>
+          <select id="bgFill" class="full" onchange="syncBGOptions()">
+            <option value="#ffffff" selected>White — e-commerce ready</option>
+            <option value="transparent">None — transparent</option>
+            <option value="#f0f0f0">Light grey</option>
+            <option value="#000000">Black</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Download Format</label>
+          <select id="bgFmt" class="full" onchange="syncBGOptions()">
+            <option value="jpeg" selected>JPEG (.jpg) — e-commerce standard, solid background only</option>
+            <option value="png">PNG — keeps transparency</option>
+            <option value="webp">WebP — small files, keeps transparency</option>
+            <option value="svg">SVG with embedded image</option>
+          </select>
+        </div>
+      </div>
+      <div class="hint hidden" id="bgJpegHint">JPEG can’t store transparency, so the background is set to white unless you pick another colour.</div>
+      <button class="btn-main" id="btnRemoveBG" onclick="doRemoveBG()" disabled>✂️ Remove Background</button>
+    </div>
+
+    <div class="card hidden" id="cardBGResult">
+      <div class="card-title">Preview</div>
+      <div class="two-col" style="margin-bottom:14px;">
+        <div class="img-box">
+          <span class="img-label">Original</span>
+          <img id="bgImgOrig" class="zoomable" onclick="viewBGResult(true)">
+        </div>
+        <div class="img-box checker">
+          <span class="img-label">Background Removed</span>
+          <img id="bgImgResult" class="zoomable" onclick="viewBGResult(false)">
+          <span class="zoom-tip">🔍 Click to enlarge</span>
+        </div>
+      </div>
+      <div class="btn-row">
+        <a class="btn-dl" id="bgDlBtn" download>📥 Download</a>
+        <button class="btn-sec" onclick="resetBG()">↩ New Image</button>
+      </div>
+    </div>
+
+    <div class="card hidden" id="cardBGBatchResult">
+      <div class="card-title">Backgrounds Removed</div>
+      <div class="batch-list" id="removebgBatchList"></div>
+      <div class="hidden" id="removebgZipRow" style="margin-top:12px;">
+        <button class="btn-dl" onclick="downloadBatchZip('removebg')">📦 Download All as ZIP</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════ PROCEDURES ═══════════════════════════════ -->
+  <div id="panelProcedures" class="panel hidden">
+    <div class="proc-layout">
+      <nav class="card proc-menu" aria-label="Procedures">
+        <div class="card-title">Procedures</div>
+        <div id="procMenu"></div>
+      </nav>
+      <!-- One pane per entry in PROCEDURES (rendered by renderProcedures) -->
+      <div class="proc-body" id="procBody"></div>
+    </div>
+  </div>
+
+  <!-- ═══ PROCESSING (shared) ═══ -->
+  <div class="card hidden" id="cardProcessing">
+    <div class="card-title" id="procTitle">Processing</div>
+    <div class="prog-bar"><div id="progFill" style="width:0%"></div></div>
+    <div class="hint" id="progMsg">Starting…</div>
+    <div class="btn-row">
+      <button class="btn-sec" id="btnStop" onclick="stopProcess()">⏹ Stop</button>
+    </div>
+  </div>
+
+  <!-- ═══ FOLDER RESULT (shared) ═══ -->
+  <div class="card hidden" id="cardFolderResult">
+    <div class="card-title" id="folderResTitle">Folder Results</div>
+    <div class="folder-summary" id="folderSummary"></div>
+    <div class="batch-list" id="folderResList" style="margin-top:14px;"></div>
+  </div>
+
+  <!-- ═══ RESULT (compress / upscale single file) ═══ -->
+  <div class="card hidden" id="cardResult">
+    <div class="card-title">Result</div>
+    <div class="result-imgs">
+      <div class="img-box">
+        <span class="img-label">Original</span>
+        <img id="imgOrig" class="zoomable" onclick="viewProcessResult(true)">
+      </div>
+      <div class="img-box" id="imgResultBox">
+        <span class="img-label">Result</span>
+        <img id="imgResult" class="zoomable" onclick="viewProcessResult(false)">
+        <span class="zoom-tip">🔍 Click to enlarge</span>
+      </div>
+    </div>
+    <div class="stats">
+      <div class="srow"><span class="slabel">File size</span><span class="sval" id="rSizes">—</span></div>
+      <div class="srow"><span class="slabel">Dimensions</span><span class="sval" id="rDims">—</span></div>
+      <div class="srow"><span class="slabel">Format</span><span class="sval" id="rFmt">—</span></div>
+      <div class="srow"><span class="slabel">Change</span><span class="sval" id="rDelta">—</span></div>
+    </div>
+    <div class="btn-row">
+      <a class="btn-dl" id="dlBtn" download>📥 Download</a>
+      <button class="btn-sec" onclick="resetResult()">↩ Process Another</button>
+    </div>
+  </div>
+
+  <!-- ═══ ADMIN (super-admins only) ═══ -->
+  <div id="panelAdmin" class="panel hidden">
+    <div class="card">
+      <div class="card-title">Users</div>
+      <div class="adm-bar">
+        <input type="search" id="admSearch" placeholder="Search username, name or company">
+        <select id="admCompany"><option value="">All companies</option></select>
+        <button class="btn-main" id="admAdd">+ Add user</button>
+      </div>
+      <div class="adm-msg" id="admMsg" role="status"></div>
+      <div class="adm-table-wrap">
+        <table class="adm">
+          <thead><tr><th>User</th><th>Company</th><th>Status</th><th>Tabs</th><th>Last sign-in</th><th></th></tr></thead>
+          <tbody id="admRows"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- ═══ ZOOM VIEWER ═══ -->
+<div id="viewer" class="hidden" role="dialog" aria-modal="true">
+  <div class="v-bar">
+    <span class="v-tag" id="vTag">Result</span>
+    <span class="v-title" id="vTitle"></span>
+    <button class="btn-sec" id="vCompare" onclick="viewerToggleCompare()">⇄ Show original</button>
+    <button class="btn-sec" id="vZoom" onclick="viewerToggleZoom()">🔍 Actual size</button>
+    <a class="btn-dl" id="vDl" download>📥 Download</a>
+    <button class="btn-sec" onclick="closeViewer()">✕ Close</button>
+  </div>
+  <div class="v-stage" id="vStage"><img id="vImg" alt=""></div>
+  <div class="v-hint" id="vHint"></div>
+</div>
+
+<!-- ═══ ACCOUNT DIALOGS ═══ -->
+<dialog class="modal" id="dlgPw">
+  <form method="dialog" id="formPw">
+    <div class="card-title">Change password</div>
+    <label>Current password<input type="password" id="pwCur" autocomplete="current-password" required></label>
+    <label>New password (at least 10 characters)<input type="password" id="pwNew" autocomplete="new-password" minlength="10" required></label>
+    <label>Repeat new password<input type="password" id="pwNew2" autocomplete="new-password" minlength="10" required></label>
+    <div class="err" id="pwErr" role="alert"></div>
+    <div class="row">
+      <button type="button" class="link-btn" id="pwCancel">Cancel</button>
+      <button class="btn-main" id="pwSave">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="modal" id="dlgUser">
+  <form method="dialog" id="formUser">
+    <div class="card-title" id="userTitle">Add user</div>
+    <label>Username<input type="text" id="uUsername" autocapitalize="none" spellcheck="false" required></label>
+    <label>Full name<input type="text" id="uName"></label>
+    <label>Company<input type="text" id="uCompany" list="admCompanies"></label>
+    <datalist id="admCompanies"></datalist>
+    <div id="uPwRow">
+      <label>Starting password
+        <span style="display:flex;gap:6px"><input type="text" id="uPassword" style="flex:1" minlength="10">
+        <button type="button" class="link-btn" id="uGen">Generate</button></span>
+      </label>
+    </div>
+    <div class="card-title" style="margin:6px 0 0">Tabs</div>
+    <div class="adm-tabs" id="uTabs"></div>
+    <label style="flex-direction:row;align-items:center;gap:6px;color:var(--text)">
+      <input type="checkbox" id="uSuper"> Super-admin (all tabs + Admin)</label>
+    <div class="err" id="uErr" role="alert"></div>
+    <div class="row">
+      <button type="button" class="link-btn" id="uCancel">Cancel</button>
+      <button class="btn-main" id="uSave">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="modal" id="dlgReset">
+  <form method="dialog" id="formReset">
+    <div class="card-title">Reset password — <span id="rUser"></span></div>
+    <label>New starting password
+      <span style="display:flex;gap:6px"><input type="text" id="rPassword" style="flex:1" minlength="10" required>
+      <button type="button" class="link-btn" id="rGen">Generate</button></span>
+    </label>
+    <p style="font-size:12px;color:var(--text2)">The user is signed out everywhere and must choose a new password at next sign-in.</p>
+    <div class="err" id="rErr" role="alert"></div>
+    <div class="row">
+      <button type="button" class="link-btn" id="rCancel">Cancel</button>
+      <button class="btn-main" id="rSave">Reset</button>
+    </div>
+  </form>
+</dialog>
+
+<script type="module">
+// ═══════════════════════════════════════════════════════════════
+// VERSION — APP_BUILD is stamped by deploy.ps1 on every publish
+// ═══════════════════════════════════════════════════════════════
+const APP_VERSION = '2.2';
+const APP_BUILD = '2026-10-14 22:43';
+const CHANNEL = (() => {
+  const local = APP_BUILD.includes('BUILD');
+  const host = location.hostname;
+  return local || !host ? 'local' : host.startsWith('beta--') ? 'beta' : 'production';
+})();
+{
+  const local = APP_BUILD.includes('BUILD');
+  document.getElementById('appVersion').textContent =
+    `v${APP_VERSION} · ${local ? 'unpublished copy' : `build ${APP_BUILD}`}`;
+  if (CHANNEL !== 'production') {
+    const tag = document.getElementById('appChannel');
+    tag.textContent = CHANNEL === 'beta' ? 'BETA' : 'LOCAL';
+    tag.classList.add(CHANNEL);
+    tag.classList.remove('hidden');
+    document.title = `[${tag.textContent}] ${document.title}`;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ENGINES (all free, all run on the user's device)
+// ═══════════════════════════════════════════════════════════════
+const JSQUASH = {
+  jpeg:   'https://esm.sh/@jsquash/jpeg@1.6.0/encode',
+  webp:   'https://esm.sh/@jsquash/webp@1.5.0/encode',
+  avif:   'https://esm.sh/@jsquash/avif@2.1.1/encode',
+  oxipng: 'https://esm.sh/@jsquash/oxipng@2.3.0/optimise',
+};
+const ORT_BASE    = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/';
+const ESRGAN_URL  = 'https://huggingface.co/Saimon8420/realesr-general-x4v3-web/resolve/main/realesr-general-x4v3-static384.onnx';
+const TJS_URL     = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.1';
+const HEIC_URL    = 'https://cdn.jsdelivr.net/npm/heic-to@1.6.5/dist/heic-to.js';
+const JSPDF_URL   = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js';
+const MODEL_CACHE = 'pupik-image-tools-models-v1';
+// Upscaled canvases above this pixel count crash mobile Safari and exhaust GPU memory
+const MAX_AI_OUT_PX = 36e6;
+const MAX_UPSCALE_OUT_PX = 64e6;
+const MAX_CANVAS_SIDE = 16384;
+
+const BG_MODELS = {
+  quality: { id: 'studioludens/birefnet-lite-512', kind: 'birefnet', label: 'BiRefNet', size: '~94 MB' },
+  fast:    { id: 'xrds/isnet-general-onnx-int8',  kind: 'isnet',    label: 'ISNet',    size: '~42 MB' },
+};
+
+// ═══════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════
+let files = [];           // [{file, img, url}]
+let activeTab = 'convert';
+let lastResultUrl = null;
+let lastBGUrls = [];
+let job = null;           // AbortController of the running tool
+const folder = { on: false, input: null, output: null };   // folder mode: directory handles
+const batches = { convert: [], compress: [], upscale: [], removebg: [] };   // [{blob, name, url}]; procedures add their own
+const ZIP_NAMES = {
+  convert: 'converted_images.zip', compress: 'compressed_images.zip',
+  upscale: 'upscaled_images.zip',  removebg: 'no_bg_images.zip',
+};
+
+// ═══════════════════════════════════════════════════════════════
+// TABS
+// ═══════════════════════════════════════════════════════════════
+const TAB_PANEL = { convert:'Convert', compress:'Compress', upscale:'Upscale', removebg:'RemoveBG', procedures:'Procedures', admin:'Admin' };
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    activeTab = btn.dataset.tab;
+    document.body.classList.toggle('admin-mode', activeTab === 'admin');
+    if (activeTab === 'admin') loadUsers();
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn));
+    document.querySelectorAll('.panel').forEach(p => p.classList.add('hidden'));
+    show('panel' + TAB_PANEL[activeTab]);
+    hide('cardResult');
+    if (!job) { hide('cardProcessing'); hide('cardFolderResult'); }
+    refreshButtons();
+    if (activeTab === 'upscale') ensureUpscaler().catch(() => {});
+    if (activeTab === 'removebg') ensureBGEngine(document.getElementById('bgModel').value).catch(() => {});
+    if (activeTab === 'procedures') openProcedure(activeProc);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// UPLOAD / DROP
+// ═══════════════════════════════════════════════════════════════
+const SUPPORTED = new Set(['image/jpeg','image/png','image/webp','image/avif','image/heic','image/heif','image/gif','image/bmp']);
+const SUPPORTED_EXT = new Set(['jpg','jpeg','png','webp','avif','heic','heif','gif','bmp']);
+
+function isSupportedFile(f) {
+  return SUPPORTED.has(f.type.toLowerCase()) || SUPPORTED_EXT.has(f.name.split('.').pop().toLowerCase());
+}
+function isHeicFile(f) {
+  return /image\/hei[cf]/i.test(f.type) || /\.(heic|heif)$/i.test(f.name);
+}
+
+const zone = document.getElementById('uploadZone');
+const finput = document.getElementById('fileInput');
+
+zone.addEventListener('click', e => {
+  if (!e.target.closest('button')) finput.click();
+});
+zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag'); });
+zone.addEventListener('dragleave', e => { if (!zone.contains(e.relatedTarget)) zone.classList.remove('drag'); });
+zone.addEventListener('drop', async e => {
+  e.preventDefault(); zone.classList.remove('drag');
+  const all = Array.from(e.dataTransfer.files);
+  const good = all.filter(isSupportedFile);
+  const bad  = all.filter(f => !isSupportedFile(f));
+  if (bad.length) flashReject(`${bad.length} unsupported file(s) skipped (${bad.map(f=>f.name).join(', ')})`);
+  if (good.length) await addFiles(good);
+});
+finput.addEventListener('change', async () => {
+  if (!finput.files.length) return;
+  const picked = Array.from(finput.files);
+  finput.value = '';
+  await addFiles(picked);
+});
+
+function flashReject(msg) {
+  const el = document.getElementById('rejectBar');
+  el.textContent = msg; el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+async function heicToJpeg(file) {
+  const { heicTo } = await import(HEIC_URL);
+  const blob = await heicTo({ blob: file, type: 'image/jpeg', quality: 0.95 });
+  return new File([blob], file.name.replace(/\.(heic|heif)$/i, '') + '.jpg', { type: 'image/jpeg' });
+}
+
+async function addFiles(newFiles) {
+  const failed = [];
+  for (let file of newFiles) {
+    if (isHeicFile(file)) {
+      document.getElementById('uzSub').textContent = `Converting ${file.name} from HEIC…`;
+      try { file = await heicToJpeg(file); }
+      catch (e) { console.warn('HEIC conversion failed:', e); failed.push(file.name); continue; }
+    }
+    const url = URL.createObjectURL(file);
+    try {
+      const img = await loadImg(url);
+      files.push({ file, img, url });
+    } catch { URL.revokeObjectURL(url); failed.push(file.name); }
+  }
+  document.getElementById('uzSub').textContent = 'or click to browse';
+  if (failed.length) flashReject(`Could not read: ${failed.join(', ')}`);
+  renderFileList();
+  refreshButtons();
+  updateCompressHint();
+  updateUpscaleHint();
+}
+
+function loadImg(src) {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => res(img);
+    img.onerror = rej;
+    img.src = src;
+  });
+}
+
+function renderFileList() {
+  if (!files.length) { hide('cardFiles'); return; }
+  show('cardFiles');
+  const n = files.length;
+  document.getElementById('filesTitle').textContent =
+    n === 1 ? 'Loaded Files (1)' : `Loaded Files (${n})`;
+  document.getElementById('fileList').innerHTML = files.map((f, i) => `
+    <div class="file-thumb" id="ft${i}">
+      <img src="${f.url}" alt="">
+      <div class="ft-name" title="${esc(f.file.name)}">${esc(f.file.name)}</div>
+      <div class="ft-size">${fmt(f.file.size)}</div>
+      <button class="ft-remove" onclick="removeFile(${i})" title="Remove">✕</button>
+    </div>`).join('');
+}
+
+window.removeFile = i => {
+  URL.revokeObjectURL(files[i].url);
+  files.splice(i, 1);
+  renderFileList();
+  refreshButtons();
+  updateCompressHint();
+  updateUpscaleHint();
+};
+
+window.clearFiles = () => {
+  files.forEach(f => URL.revokeObjectURL(f.url));
+  files = [];
+  Object.keys(batches).forEach(resetBatch);
+  renderFileList();
+  refreshButtons();
+  hide('cardResult'); hide('cardProcessing');
+  hide('cardConvertResult'); hide('cardCompressResult'); hide('cardUpscaleResult');
+  hide('cardBGResult'); hide('cardBGBatchResult');
+  document.querySelectorAll('.proc-result').forEach(c => c.classList.add('hidden'));
+};
+
+function refreshButtons() {
+  if (activeTab === 'admin') return;
+  const has = (folder.on ? folderReady() : files.length > 0) && !job;
+  setDis('btnConvert',  !has);
+  setDis('btnCompress', !has);
+  setDis('btnUpscale',  !has);
+  setDis('btnRemoveBG', !has);
+  document.querySelectorAll('.btn-proc').forEach(b => { b.disabled = !has; });
+}
+
+function setDis(id, v) { const el = document.getElementById(id); if (el) el.disabled = v; }
+
+// ═══════════════════════════════════════════════════════════════
+// BATCH RESULTS (shared by all four tools)
+// ═══════════════════════════════════════════════════════════════
+function resetBatch(key) {
+  batches[key].forEach(b => URL.revokeObjectURL(b.url));
+  batches[key] = [];
+}
+
+function addToBatch(key, blob, name) {
+  const taken = new Set(batches[key].map(b => b.name));
+  let unique = name, n = 2;
+  while (taken.has(unique)) unique = name.replace(/(\.[^.]+)?$/, ` (${n++})$1`);
+  const url = URL.createObjectURL(blob);
+  batches[key].push({ blob, name: unique, url });
+  return { url, name: unique };
+}
+
+const isImageName = name => /\.(jpe?g|png|webp|avif|svg)$/i.test(name);
+
+function batchRow(thumbUrl, name, info, url) {
+  const viewable = url && isImageName(name);
+  const view = viewable ? ` data-result="${url}" data-orig="${thumbUrl}" data-name="${esc(name)}"` : '';
+  return `
+    <div class="batch-item${url ? '' : ' failed'}"${view}>
+      <img src="${thumbUrl}" alt=""${viewable ? ' class="zoomable" title="Click to enlarge"' : ''}>
+      <div class="bi-info">
+        <div class="bi-name" title="${esc(name)}">${esc(name)}</div>
+        <div class="bi-size">${info}</div>
+      </div>
+      <div class="bi-actions">
+        ${viewable ? '<button class="view-link">👁 View</button>' : ''}
+        ${url ? `<a class="dl-link" href="${url}" download="${esc(name)}">↓ Save</a>` : ''}
+      </div>
+    </div>`;
+}
+
+function stoppedRow(count) {
+  return `
+    <div class="batch-item stopped">
+      <div class="bi-info">
+        <div class="bi-name">⏹ Stopped</div>
+        <div class="bi-size">${count} file${count > 1 ? 's' : ''} not processed</div>
+      </div>
+    </div>`;
+}
+
+function showBatch(key, cardId, rows) {
+  const list = document.getElementById(key + 'BatchList');
+  list.innerHTML = rows.join('');
+  toggle(key + 'ZipRow', batches[key].length > 1);
+  show(cardId);
+  renderResultThumbs(list, key === 'removebg');
+}
+
+/** Swap each row's thumbnail for a small preview of its result, one at a time to limit memory. */
+async function renderResultThumbs(list, transparent) {
+  for (const item of list.querySelectorAll('.batch-item[data-result]')) {
+    try {
+      const img = await loadImg(item.dataset.result);
+      const s = Math.min(1, 112 / Math.min(img.naturalWidth, img.naturalHeight));
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(img.naturalWidth * s));
+      c.height = Math.max(1, Math.round(img.naturalHeight * s));
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      const thumb = item.querySelector('img');
+      thumb.src = c.toDataURL('image/png');
+      if (transparent) thumb.classList.add('checker-bg');
+    } catch { /* keep the original thumbnail */ }
+    await tick();
+  }
+}
+
+document.addEventListener('click', e => {
+  const trigger = e.target.closest('.batch-item[data-result] img, .batch-item[data-result] .view-link');
+  if (!trigger) return;
+  const item = trigger.closest('.batch-item');
+  openViewer({
+    src: item.dataset.result, orig: item.dataset.orig, name: item.dataset.name,
+    transparent: !!item.closest('#removebgBatchList'),
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// JOBS & STOP (one tool run at a time)
+// ═══════════════════════════════════════════════════════════════
+const isAbort = err => err?.name === 'AbortError';
+
+/** Resolves like `promise`, but rejects as soon as Stop is pressed (the work itself may finish in the background). */
+function untilAborted(promise, signal) {
+  return Promise.race([promise, new Promise((_, rej) => {
+    if (signal.aborted) rej(signal.reason);
+    signal.addEventListener('abort', () => rej(signal.reason), { once: true });
+  })]);
+}
+
+function runJob(fn) {
+  return async () => {
+    if (job) return;
+    job = new AbortController();
+    refreshButtons();
+    files.forEach((_, i) => markThumb(i, null));
+    try { await fn(job.signal); }
+    finally {
+      job = null;
+      hide('cardProcessing');
+      refreshButtons();
+    }
+  };
+}
+
+function beginJob(title) {
+  document.getElementById('procTitle').textContent = title;
+  const stop = document.getElementById('btnStop');
+  stop.disabled = false;
+  stop.textContent = '⏹ Stop';
+  show('cardProcessing');
+}
+
+window.stopProcess = () => {
+  if (!job || job.signal.aborted) return;
+  job.abort(new DOMException('Stopped', 'AbortError'));
+  cancelCodecJobs();
+  const stop = document.getElementById('btnStop');
+  stop.disabled = true;
+  stop.textContent = 'Stopping…';
+  document.getElementById('progMsg').textContent = 'Stopping after the current step — finished files are kept…';
+};
+
+/** Shows a batch result card with whatever finished; skipped files get a single "Stopped" row. */
+function endBatch(key, cardId, rows, stopped) {
+  hide('cardProcessing');
+  if (!rows.length) return;
+  showBatch(key, cardId, stopped ? rows.concat(stoppedRow(stopped)) : rows);
+}
+
+window.downloadBatchZip = async key => {
+  if (!window.JSZip) { alert('JSZip not loaded — refresh and try again.'); return; }
+  const zip = new JSZip();
+  batches[key].forEach(({ blob, name }) => zip.file(name, blob));
+  const zb = await zip.generateAsync({ type: 'blob' });
+  triggerDownload(URL.createObjectURL(zb), ZIP_NAMES[key]);
+};
+
+function sizeChange(before, after) {
+  const sign = after < before ? '▼' : after > before ? '▲' : '=';
+  return `${fmt(before)} ${sign} ${fmt(after)}`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CODEC WORKERS — jSquash (MozJPEG / libwebp / libavif / OxiPNG)
+// ═══════════════════════════════════════════════════════════════
+// Runs inside each worker; serialized with toString(), so it must not use outer variables.
+function codecWorkerMain() {
+  const MIME = { jpeg: 'image/jpeg', webp: 'image/webp', avif: 'image/avif', png: 'image/png' };
+  const encoders = {};
+  const pixelCache = new WeakMap();
+
+  const fmtB = b => b >= 1048576 ? (b / 1048576).toFixed(2) + ' MB' : b >= 1024 ? (b / 1024).toFixed(1) + ' KB' : b + ' B';
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+  function loadEncoder(fmt) {
+    if (!encoders[fmt]) {
+      encoders[fmt] = (async () => {
+        try {
+          if (fmt === 'png') {
+            const m = await import(JSQUASH.oxipng);
+            return img => m.default(img, { level: 2 });
+          }
+          const m = await import(JSQUASH[fmt]);
+          return (img, q, avifSpeed) => m.default(img, fmt === 'avif'
+            ? { quality: Math.round(q * 100), speed: avifSpeed }
+            : { quality: Math.round(q * 100) });
+        } catch (err) {
+          console.warn(`jSquash ${fmt} failed to load, using the browser encoder:`, err);
+          return null;
+        }
+      })();
+    }
+    return encoders[fmt];
+  }
+
+  function render(bmp, w, h, fill) {
+    const c = new OffscreenCanvas(w, h);
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    if (fill) { ctx.fillStyle = fill; ctx.fillRect(0, 0, w, h); }
+    ctx.drawImage(bmp, 0, 0, w, h);
+    return c;
+  }
+
+  function pixels(canvas) {
+    let img = pixelCache.get(canvas);
+    if (!img) {
+      img = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+      pixelCache.set(canvas, img);
+    }
+    return img;
+  }
+
+  // AVIF speed 9 is ~7× faster than 7 for ~1% larger files; compress encodes many times.
+  async function encode(canvas, fmt, q, avifSpeed = 7) {
+    const enc = await loadEncoder(fmt);
+    if (enc) {
+      const buf = await enc(pixels(canvas), q, avifSpeed);
+      return { blob: new Blob([buf], { type: MIME[fmt] }), engine: 'jsquash' };
+    }
+    const blob = await canvas.convertToBlob({ type: MIME[fmt], quality: fmt === 'png' ? undefined : q });
+    if (blob.type !== MIME[fmt]) throw new Error(`${fmt.toUpperCase()} encoding is not supported in this browser`);
+    return { blob, engine: 'native' };
+  }
+
+  // AVIF reaches JPEG-92 visual quality around 70, so map the shared presets onto that scale
+  // (100% stays near-lossless, 92% → 70, 50% → 40).
+  const avifQuality = q => q >= 0.92 ? 0.7 + (q - 0.92) / 0.08 * 0.3 : 0.4 + (q - 0.5) / 0.42 * 0.3;
+
+  async function convert({ file, fmt, quality }) {
+    const bmp = await createImageBitmap(file);
+    const c = render(bmp, bmp.width, bmp.height, fmt === 'jpeg' ? '#ffffff' : null);
+    bmp.close();
+    const { blob, engine } = await encode(c, fmt, fmt === 'avif' ? avifQuality(quality) : quality);
+    return { blob, width: c.width, height: c.height, engine };
+  }
+
+  // Highest quality that fits: probe the top, guess from the size ratio, then
+  // interpolate in log-size space until within `tol` under the target.
+  async function searchQuality(canvas, target, tol, enc, step, minQ = 0.05) {
+    let hi = { q: 0.95, blob: await enc(canvas, 0.95) };
+    step(`Quality 95% → ${fmtB(hi.blob.size)}`);
+    if (hi.blob.size <= target) return { ...hi, fits: true };
+    let lo = null;
+    let q = clamp(0.95 * Math.pow(target / hi.blob.size, 0.8), minQ, 0.9);
+    for (let i = 0; i < 9; i++) {
+      const blob = await enc(canvas, q);
+      step(`Quality ${Math.round(q * 100)}% → ${fmtB(blob.size)}`);
+      if (blob.size <= target) {
+        lo = { q, blob };
+        if (blob.size >= target * (1 - tol)) break;
+      } else {
+        hi = { q, blob };
+        if (q <= minQ) break;
+      }
+      if (lo && hi.q - lo.q <= 0.01) break;
+      if (lo) {
+        const t = Math.log(target / lo.blob.size) / Math.log(hi.blob.size / lo.blob.size);
+        q = lo.q + (hi.q - lo.q) * clamp(t, 0.1, 0.9);
+      } else {
+        // Size flattens at low quality (WebP ≈ q^0.5), so overshoot downward to cross the target fast.
+        q = Math.max(minQ, hi.q * Math.pow(target / hi.blob.size, 2) * 0.93);
+      }
+    }
+    return lo ? { ...lo, fits: true } : { ...hi, fits: false };
+  }
+
+  // Largest scale that fits: file size grows roughly with pixel count, so
+  // guess from sqrt(target/size) and refine with log-log interpolation.
+  async function searchScale(bmp, target, tol, encodeFn, step, fill) {
+    const W = bmp.width, H = bmp.height;
+    const at = async s => {
+      const w = Math.max(1, Math.round(W * s)), h = Math.max(1, Math.round(H * s));
+      const canvas = render(bmp, w, h, fill);
+      const blob = await encodeFn(canvas);
+      step(`Resize ${w}×${h} → ${fmtB(blob.size)}`);
+      return { s, canvas, blob };
+    };
+    let hi = await at(1);
+    if (hi.blob.size <= target) return hi;
+    let lo = null;
+    let s = Math.sqrt(target / hi.blob.size) * 0.97;
+    for (let i = 0; i < 10; i++) {
+      const r = await at(clamp(s, 0.01, 0.999));
+      if (r.blob.size <= target) {
+        lo = r;
+        if (r.blob.size >= target * (1 - tol)) break;
+      } else {
+        hi = r;
+        if (r.s <= 0.01) break;
+      }
+      if (lo && hi.s - lo.s < 0.004) break;
+      if (lo) {
+        const k = Math.log(hi.blob.size / lo.blob.size) / Math.log(hi.s / lo.s) || 2;
+        const gap = hi.s - lo.s;
+        s = clamp(lo.s * Math.pow(target / lo.blob.size, 1 / k), lo.s + gap * 0.1, hi.s - gap * 0.1);
+      } else {
+        s = hi.s * Math.sqrt(target / hi.blob.size) * 0.95;
+      }
+    }
+    return lo || hi;
+  }
+
+  async function compress({ file, fmt, target, strategy }, step) {
+    const bmp = await createImageBitmap(file);
+    const W = bmp.width, H = bmp.height;
+    const fill = fmt === 'jpeg' ? '#ffffff' : null;
+    const TOL = 0.03;
+    let engine = 'jsquash';
+    const enc = async (c, q) => { const r = await encode(c, fmt, q, 9); engine = r.engine; return r.blob; };
+    const finish = (blob, w, h, missed) => { bmp.close(); return { blob, width: w, height: h, engine, missed }; };
+
+    if (fmt === 'png') {
+      step('Optimizing PNG losslessly (OxiPNG)…');
+      const full = render(bmp, W, H, null);
+      const optimized = await enc(full, 1);
+      if (optimized.size <= target) return finish(optimized, W, H, false);
+      // Search sizes with the fast native PNG encoder against a target scaled by
+      // OxiPNG's measured savings, then optimize the winner once.
+      const nativePng = c => c.convertToBlob({ type: 'image/png' });
+      const savings = optimized.size / (await nativePng(full)).size;
+      let nativeTarget = target / savings * 0.98;
+      let best = null, bestCanvas = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const r = await searchScale(bmp, nativeTarget, TOL, nativePng, step, null);
+        step('Final OxiPNG optimization…');
+        const fin = await enc(r.canvas, 1);
+        best = fin.size <= r.blob.size ? fin : r.blob;
+        bestCanvas = r.canvas;
+        if (best.size <= target) break;
+        nativeTarget *= (target / best.size) * 0.97;
+      }
+      return finish(best, bestCanvas.width, bestCanvas.height, best.size > target);
+    }
+
+    if (strategy !== 'resize') {
+      const full = render(bmp, W, H, fill);
+      // Below these, artifacts look worse than a smaller image, so "both" switches to resizing.
+      const minQ = strategy === 'both' ? (fmt === 'avif' ? 0.5 : 0.6) : 0.05;
+      const r = await searchQuality(full, target, TOL, enc, step, minQ);
+      if (r.fits || strategy === 'quality') return finish(r.blob, W, H, !r.fits);
+      step('Keeping quality high — resizing…');
+    }
+    const q = strategy === 'resize' ? 0.92 : (fmt === 'avif' ? 0.6 : 0.8);
+    const r = await searchScale(bmp, target, TOL, c => enc(c, q), step, fill);
+    return finish(r.blob, r.canvas.width, r.canvas.height, r.blob.size > target);
+  }
+
+  async function warmup({ fmt }) {
+    return { engine: (await loadEncoder(fmt)) ? 'jsquash' : 'native' };
+  }
+
+  const OPS = { convert, compress, warmup };
+  self.onmessage = async e => {
+    const { op, args } = e.data;
+    const step = msg => self.postMessage({ type: 'step', msg });
+    try {
+      self.postMessage({ type: 'done', result: await OPS[op](args, step) });
+    } catch (err) {
+      self.postMessage({ type: 'error', error: String((err && err.message) || err) });
+    }
+  };
+}
+
+const codecPool = {
+  slots: [], queue: [], url: null,
+  size: Math.max(1, Math.min(4, Math.floor((navigator.hardwareConcurrency || 2) / 2))),
+};
+
+function spawnCodecWorker() {
+  if (!codecPool.url) {
+    const src = `const JSQUASH = ${JSON.stringify(JSQUASH)};\n(${codecWorkerMain.toString()})();`;
+    codecPool.url = URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
+  }
+  const slot = { worker: new Worker(codecPool.url, { type: 'module' }), job: null };
+  const settle = (fn, value) => {
+    const job = slot.job;
+    slot.job = null;
+    if (job) fn(job, value);
+    pumpCodec();
+  };
+  slot.worker.onmessage = e => {
+    const { type, msg, result, error } = e.data;
+    if (type === 'step') { slot.job?.onStep?.(msg); return; }
+    settle(type === 'done' ? (j, v) => j.resolve(v) : (j, v) => j.reject(new Error(v)), type === 'done' ? result : error);
+  };
+  slot.worker.onerror = e => {
+    e.preventDefault?.();
+    settle((j, v) => j.reject(new Error(v)), e.message || 'Codec worker crashed');
+  };
+  return slot;
+}
+
+function pumpCodec() {
+  while (codecPool.queue.length) {
+    let slot = codecPool.slots.find(s => !s.job);
+    if (!slot && codecPool.slots.length < codecPool.size) {
+      slot = spawnCodecWorker();
+      codecPool.slots.push(slot);
+    }
+    if (!slot) return;
+    const job = codecPool.queue.shift();
+    slot.job = job;
+    job.onStart?.();
+    slot.worker.postMessage({ op: job.op, args: job.args });
+  }
+}
+
+function runCodec(op, args, { onStep, onStart } = {}) {
+  return new Promise((resolve, reject) => {
+    codecPool.queue.push({ op, args, onStep, onStart, resolve, reject });
+    pumpCodec();
+  });
+}
+
+/** Drops queued jobs and kills busy workers; fresh workers spawn on the next job. */
+function cancelCodecJobs() {
+  const err = new DOMException('Stopped', 'AbortError');
+  codecPool.queue.splice(0).forEach(j => j.reject(err));
+  codecPool.slots = codecPool.slots.filter(s => {
+    if (!s.job) return true;
+    s.worker.terminate();
+    const j = s.job;
+    s.job = null;
+    j.reject(err);
+    return false;
+  });
+}
+
+function setCodecStatus(state, msg) {
+  document.querySelectorAll('.codec-dot').forEach(d => { d.className = 'ai-dot codec-dot ' + state; });
+  document.querySelectorAll('.codec-msg').forEach(m => { m.textContent = msg; });
+}
+
+function reportCodecEngine(engines) {
+  const workers = `${codecPool.size} background worker${codecPool.size > 1 ? 's' : ''}`;
+  if (engines.includes('native')) {
+    setCodecStatus('warn', `Engine: browser built-in encoder (WebAssembly codecs unavailable) — ${workers}`);
+  } else if (engines.includes('jsquash')) {
+    setCodecStatus('ready', `Engine: MozJPEG · WebP · AVIF · OxiPNG via WebAssembly — ${workers}`);
+  }
+}
+
+function warmCodecs() {
+  setCodecStatus('loading', 'Loading WebAssembly codecs (MozJPEG · WebP · AVIF · OxiPNG)…');
+  runCodec('warmup', { fmt: 'jpeg' })
+    .then(r => reportCodecEngine([r.engine]))
+    .catch(err => {
+      if (isAbort(err)) { warmCodecs(); return; }
+      console.warn('Codec worker failed to start:', err);
+      setCodecStatus('err', 'Engine: background workers unavailable in this browser');
+    });
+}
+
+/** Runs one codec job per file across the worker pool, keeping thumbnails and progress in sync. */
+async function runCodecBatch(op, argsFor, verb) {
+  let done = 0;
+  const total = files.length;
+  return Promise.all(files.map((f, i) =>
+    runCodec(op, argsFor(f), { onStart: () => markThumb(i, 'processing') })
+      .then(r => { markThumb(i, 'done'); return r; })
+      .catch(err => {
+        if (isAbort(err)) { markThumb(i, null); return { stopped: true }; }
+        markThumb(i, 'failed');
+        return { error: err.message };
+      })
+      .finally(() => { done++; progress((done / total) * 100, `${verb} ${done}/${total}…`); })
+  ));
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CONVERT
+// ═══════════════════════════════════════════════════════════════
+window.updateConvertFmtUI = () => {
+  const fmtVal = document.getElementById('cvtFmt').value;
+  toggle('cvtQualityWrap', fmtVal !== 'png');
+  toggle('cvtPdfCombineWrap', fmtVal === 'pdf');
+};
+
+/** Add current PDF page image (A4, centered, JPEG with white behind alpha). */
+function addImageToPdfPage(doc, img, quality) {
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const margin = 10;
+  const maxW = pageW - 2 * margin;
+  const maxH = pageH - 2 * margin;
+  const PX_TO_MM = 25.4 / 96;
+  const imgWmm = img.naturalWidth * PX_TO_MM;
+  const imgHmm = img.naturalHeight * PX_TO_MM;
+  const scale = Math.min(maxW / imgWmm, maxH / imgHmm, 1);
+  const dw = imgWmm * scale;
+  const dh = imgHmm * scale;
+  const x = margin + (maxW - dw) / 2;
+  const y = margin + (maxH - dh) / 2;
+  doc.addImage(imageToJpegDataUrl(img, quality), 'JPEG', x, y, dw, dh);
+}
+
+async function convertToPdf(quality, signal) {
+  try {
+    await loadScript(JSPDF_URL);
+  } catch {
+    alert('Failed to load PDF library. Check your connection and try again.');
+    return;
+  }
+  const jsPDF = window.jspdf?.jsPDF;
+  if (!jsPDF) { alert('PDF library did not load correctly.'); return; }
+
+  const combine = document.getElementById('cvtPdfCombine').checked;
+  const newDoc = () => new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+  const rows = [];
+  let stopped = 0;
+
+  if (combine) {
+    const doc = newDoc();
+    for (let i = 0; i < files.length; i++) {
+      if (signal.aborted) { files.forEach((_, k) => markThumb(k, null)); return null; }
+      markThumb(i, 'processing');
+      progress((i / files.length) * 90, `Adding ${files[i].file.name} to PDF…`);
+      await tick();
+      if (i > 0) doc.addPage();
+      addImageToPdfPage(doc, files[i].img, quality);
+      markThumb(i, 'done');
+    }
+    const blob = doc.output('blob');
+    const outName = files.length === 1 ? `${baseName(files[0].file)}.pdf` : 'converted_images.pdf';
+    const { url, name } = addToBatch('convert', blob, outName);
+    rows.push(batchRow(files[0].url, name, `${files.length} page(s) · ${fmt(blob.size)}`, url));
+  } else {
+    for (let i = 0; i < files.length; i++) {
+      if (signal.aborted) { stopped = files.length - i; break; }
+      const { file, img, url: thumbUrl } = files[i];
+      markThumb(i, 'processing');
+      progress((i / files.length) * 90, `Creating PDF for ${file.name}…`);
+      await tick();
+      const doc = newDoc();
+      addImageToPdfPage(doc, img, quality);
+      const blob = doc.output('blob');
+      const { url, name } = addToBatch('convert', blob, `${baseName(file)}.pdf`);
+      markThumb(i, 'done');
+      rows.push(batchRow(thumbUrl, name, `${sizeChange(file.size, blob.size)} · PDF`, url));
+    }
+  }
+  progress(100, 'Done!');
+  return { rows, stopped };
+}
+
+window.doConvert = runJob(async signal => {
+  if (folder.on) return folderConvert(signal);
+  if (!files.length) return;
+  const fmtVal  = document.getElementById('cvtFmt').value;
+  const quality = parseFloat(document.getElementById('cvtQuality').value);
+
+  resetBatch('convert');
+  hide('cardConvertResult');
+  beginJob('Converting');
+  progress(0, 'Starting…');
+
+  if (fmtVal === 'pdf') {
+    const r = await convertToPdf(quality, signal);
+    if (!r) { hide('cardProcessing'); return; }
+    endBatch('convert', 'cardConvertResult', r.rows, r.stopped);
+    return;
+  }
+  const q = fmtVal === 'png' ? 1 : quality;
+  const results = await runCodecBatch('convert', f => ({ file: f.file, fmt: fmtVal, quality: q }), 'Converted');
+  reportCodecEngine(results.map(r => r.engine).filter(Boolean));
+  const rows = [];
+  results.forEach((r, i) => {
+    if (r.stopped) return;
+    const { file, url: thumbUrl } = files[i];
+    const outName = `${baseName(file)}.${extOf(fmtVal)}`;
+    if (r.error) { rows.push(batchRow(thumbUrl, outName, `Failed: ${esc(r.error)}`, null)); return; }
+    const { url, name } = addToBatch('convert', r.blob, outName);
+    rows.push(batchRow(thumbUrl, name, `${sizeChange(file.size, r.blob.size)} · ${fmtVal.toUpperCase()}`, url));
+  });
+  endBatch('convert', 'cardConvertResult', rows, results.filter(r => r.stopped).length);
+});
+
+// ═══════════════════════════════════════════════════════════════
+// COMPRESS
+// ═══════════════════════════════════════════════════════════════
+function targetBytes() {
+  const v = parseFloat(document.getElementById('targetSize').value) || 0;
+  return document.getElementById('targetUnit').value === 'mb' ? v * 1048576 : v * 1024;
+}
+
+function updateCompressHint() {
+  if (!files.length || folder.on) return;
+  const tb = targetBytes();
+  const el = document.getElementById('hintCompress');
+  if (!tb) { el.textContent = ''; return; }
+
+  if (files.length === 1) {
+    const os = files[0].file.size;
+    if (tb >= os) {
+      el.className = 'hint warn';
+      el.textContent = `⚠ Target (${fmt(tb)}) ≥ original (${fmt(os)}). Switch to Upscale tab instead.`;
+    } else {
+      el.className = 'hint ok';
+      el.textContent = `✓ Will reduce ~${((1 - tb/os)*100).toFixed(0)}% from ${fmt(os)}`;
+    }
+    return;
+  }
+
+  const alreadyOk = files.filter(f => f.file.size <= tb).length;
+  const needsWork = files.length - alreadyOk;
+  el.className = needsWork ? 'hint ok' : 'hint warn';
+  el.textContent = needsWork
+    ? `✓ Will compress ${files.length} files to ~${fmt(tb)} each${alreadyOk ? ` (${alreadyOk} already at/under target)` : ''}`
+    : `⚠ All ${files.length} files are already ≤ target (${fmt(tb)})`;
+}
+document.getElementById('targetSize').addEventListener('input', updateCompressHint);
+document.getElementById('targetUnit').addEventListener('change', updateCompressHint);
+
+window.doCompress = runJob(async signal => {
+  if (folder.on) return folderCompress(signal);
+  if (!files.length) return;
+  const tb = targetBytes();
+  if (!tb) { alert('Enter a target size first.'); return; }
+  const fmtVal   = document.getElementById('fmtCompress').value;
+  const strategy = document.getElementById('strategyCompress').value;
+  const ext      = extOf(fmtVal);
+  const argsFor  = f => ({ file: f.file, fmt: fmtVal, target: tb, strategy });
+
+  resetBatch('compress');
+  hide('cardResult'); hide('cardCompressResult');
+  beginJob('Compressing');
+  progress(0, 'Starting…');
+
+  if (files.length === 1) {
+    const { file, img } = files[0];
+    let steps = 0;
+    try {
+      const r = await runCodec('compress', argsFor(files[0]), {
+        onStep: msg => progress(Math.min(95, 5 + ++steps * 8), msg),
+      });
+      reportCodecEngine([r.engine]);
+      progress(100, 'Done!');
+      showProcessResult(r.blob, fmtVal, file, img, `${baseName(file)}.${ext}`,
+        r.missed ? 'Could not reach target — smallest result shown' : '');
+    } catch (err) {
+      hide('cardProcessing');
+      if (!isAbort(err)) alert(`Compression failed: ${err.message}`);
+    }
+    return;
+  }
+
+  const results = await runCodecBatch('compress', argsFor, 'Compressed');
+  reportCodecEngine(results.map(r => r.engine).filter(Boolean));
+  const rows = [];
+  results.forEach((r, i) => {
+    if (r.stopped) return;
+    const { file, url: thumbUrl } = files[i];
+    const outName = `${baseName(file)}.${ext}`;
+    if (r.error) { rows.push(batchRow(thumbUrl, outName, `Failed: ${esc(r.error)}`, null)); return; }
+    const { url, name } = addToBatch('compress', r.blob, outName);
+    const warn = r.missed ? ' · <span style="color:var(--yellow)">⚠ above target</span>' : '';
+    rows.push(batchRow(thumbUrl, name, `${sizeChange(file.size, r.blob.size)} · ${r.width}×${r.height} · ${fmtVal.toUpperCase()}${warn}`, url));
+  });
+  endBatch('compress', 'cardCompressResult', rows, results.filter(r => r.stopped).length);
+});
+
+// ═══════════════════════════════════════════════════════════════
+// SHARED AI HELPERS
+// ═══════════════════════════════════════════════════════════════
+let webgpuCheck = null;
+function hasWebGPU() {
+  if (!webgpuCheck) {
+    webgpuCheck = (async () => {
+      try { return !!(navigator.gpu && await navigator.gpu.requestAdapter()); }
+      catch { return false; }
+    })();
+  }
+  return webgpuCheck;
+}
+
+function deviceLabel(device) {
+  return device === 'webgpu' ? 'Engine: WebGPU (graphics card)' : 'Engine: CPU (WebAssembly) — slower, no WebGPU available';
+}
+
+function setAiStrip(dotId, msgId, state, msg) {
+  const dot = document.getElementById(dotId);
+  const msgEl = document.getElementById(msgId);
+  if (dot) dot.className = 'ai-dot ' + state;
+  if (msgEl) msgEl.textContent = msg;
+  if (state === 'loading' && !document.getElementById('cardProcessing').classList.contains('hidden')) {
+    document.getElementById('progMsg').textContent = msg;
+  }
+}
+
+/** Fetches a model file once, then serves it from Cache Storage on later visits. */
+async function fetchCached(url, onProgress) {
+  let cache = null;
+  try {
+    cache = await caches.open(MODEL_CACHE);
+    const hit = await cache.match(url);
+    if (hit) return await hit.arrayBuffer();
+  } catch { cache = null; }
+
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`Model download failed (HTTP ${resp.status})`);
+  const total = +resp.headers.get('content-length') || 0;
+  const reader = resp.body.getReader();
+  const chunks = [];
+  let loaded = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    loaded += value.length;
+    onProgress?.(loaded, total);
+  }
+  const buf = new Uint8Array(loaded);
+  let off = 0;
+  for (const c of chunks) { buf.set(c, off); off += c.length; }
+  try { await cache?.put(url, new Response(buf.slice())); } catch { /* quota or private mode */ }
+  return buf.buffer;
+}
+
+function loadScript(src) {
+  return new Promise((res, rej) => {
+    if (document.querySelector(`script[src="${src}"]`)) { res(); return; }
+    const s = document.createElement('script');
+    s.src = src; s.onload = res; s.onerror = rej;
+    document.head.appendChild(s);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// UPSCALE — Real-ESRGAN general x4v3 via ONNX Runtime Web
+// ═══════════════════════════════════════════════════════════════
+let upscalerPromise = null;
+
+function ensureUpscaler() {
+  if (!upscalerPromise) {
+    upscalerPromise = (async () => {
+      setAiStrip('upscaleDot', 'upscaleMsg', 'loading', 'Loading Real-ESRGAN engine…');
+      const ort = await import(ORT_BASE + 'ort.webgpu.min.mjs');
+      ort.env.wasm.wasmPaths = ORT_BASE;
+      const model = await fetchCached(ESRGAN_URL, (l, t) =>
+        setAiStrip('upscaleDot', 'upscaleMsg', 'loading',
+          `Downloading Real-ESRGAN model… ${t ? Math.round(l / t * 100) + '%' : fmt(l)} (one-time, ~5 MB)`));
+      let session = null, device = 'wasm';
+      if (await hasWebGPU()) {
+        try {
+          session = await ort.InferenceSession.create(new Uint8Array(model.slice(0)), { executionProviders: ['webgpu'] });
+          device = 'webgpu';
+        } catch (err) { console.warn('WebGPU upscaler failed, falling back to CPU:', err); }
+      }
+      if (!session) session = await ort.InferenceSession.create(new Uint8Array(model), { executionProviders: ['wasm'] });
+      setAiStrip('upscaleDot', 'upscaleMsg', device === 'webgpu' ? 'ready' : 'warn',
+        `Real-ESRGAN x4 AI ready — ${deviceLabel(device)}`);
+      return { ort, session, device };
+    })().catch(err => {
+      upscalerPromise = null;
+      console.warn('Real-ESRGAN failed to load:', err);
+      setAiStrip('upscaleDot', 'upscaleMsg', 'err', 'AI upscaler failed to load — basic canvas upscaling will be used');
+      throw err;
+    });
+  }
+  return upscalerPromise;
+}
+
+window.onScaleChange = () => {
+  toggle('fieldCustomW', document.getElementById('scaleFactor').value === 'custom');
+  updateUpscaleHint();
+};
+
+function upscaleTarget(img) {
+  const sf = document.getElementById('scaleFactor').value;
+  const iw = img.naturalWidth, ih = img.naturalHeight;
+  let w, label;
+  if (sf === 'custom') {
+    w = parseInt(document.getElementById('customWidth').value) || 0;
+    label = `${w}w`;
+  } else {
+    w = Math.round(iw * parseFloat(sf));
+    label = `${sf}x`;
+  }
+  let h = Math.round(w * ih / iw);
+  const cap = Math.min(1, Math.sqrt(MAX_UPSCALE_OUT_PX / (w * h || 1)), MAX_CANVAS_SIDE / Math.max(w, h, 1));
+  if (cap < 1) {
+    w = Math.floor(w * cap); h = Math.floor(h * cap);
+    label = `${w}w`;
+  }
+  return { w, h, label, capped: cap < 1 };
+}
+
+function updateUpscaleHint() {
+  const el = document.getElementById('hintUpscale');
+  if (!files.length || folder.on) { el.textContent = ''; return; }
+  const { w, h, capped } = upscaleTarget(files[0].img);
+  if (!w) { el.textContent = ''; return; }
+  const more = files.length > 1 ? `  — first of ${files.length} files, each keeps its own proportions` : '';
+  const cap = capped ? `  — capped at ${MAX_UPSCALE_OUT_PX / 1e6} MP to stay within browser memory` : '';
+  el.textContent = `→ Output: ${w} × ${h} px  (${(w * h / 1e6).toFixed(2)} MP)${cap}${more}`;
+}
+
+/** Tiled 4× super-resolution of an image or canvas; returns a canvas at exactly outW × outH. */
+async function esrganUpscale(img, outW, outH, onTile, signal) {
+  const { ort, session } = await ensureUpscaler();
+  const S = 4, T = 384, PAD = 16, STEP = T - 2 * PAD;
+  const iw = img.naturalWidth ?? img.width, ih = img.naturalHeight ?? img.height;
+  const pre = Math.min(1, Math.sqrt(MAX_AI_OUT_PX / (iw * ih * S * S)));
+  const W = Math.max(1, Math.round(iw * pre));
+  const H = Math.max(1, Math.round(ih * pre));
+
+  const srcCanvas = document.createElement('canvas');
+  srcCanvas.width = W; srcCanvas.height = H;
+  const sctx = srcCanvas.getContext('2d', { willReadFrequently: true });
+  sctx.imageSmoothingQuality = 'high';
+  sctx.drawImage(img, 0, 0, W, H);
+  const src = sctx.getImageData(0, 0, W, H).data;
+  srcCanvas.width = srcCanvas.height = 0;
+
+  const out = document.createElement('canvas');
+  out.width = W * S; out.height = H * S;
+  const octx = out.getContext('2d');
+
+  const cols = Math.ceil(W / STEP), rows = Math.ceil(H / STEP), total = cols * rows;
+  const plane = T * T, OT = T * S, oplane = OT * OT;
+  const input = new Float32Array(3 * plane);
+  const inName = session.inputNames[0], outName = session.outputNames[0];
+  let done = 0;
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      signal?.throwIfAborted();
+      const x0 = c * STEP, y0 = r * STEP;
+      const cw = Math.min(STEP, W - x0), ch = Math.min(STEP, H - y0);
+      const sx = x0 - PAD, sy = y0 - PAD;
+      // Edge tiles repeat border pixels so every inference sees a full 384×384 input
+      for (let y = 0; y < T; y++) {
+        const row = Math.min(H - 1, Math.max(0, sy + y)) * W;
+        for (let x = 0; x < T; x++) {
+          const p = (row + Math.min(W - 1, Math.max(0, sx + x))) * 4, k = y * T + x;
+          input[k] = src[p] / 255;
+          input[plane + k] = src[p + 1] / 255;
+          input[2 * plane + k] = src[p + 2] / 255;
+        }
+      }
+      const result = await session.run({ [inName]: new ort.Tensor('float32', input, [1, 3, T, T]) });
+      const o = result[outName].data;
+      const OW = cw * S, OH = ch * S, off = PAD * S;
+      const tile = octx.createImageData(OW, OH);
+      const d = tile.data;
+      for (let y = 0; y < OH; y++) {
+        const base = (off + y) * OT + off;
+        for (let x = 0; x < OW; x++) {
+          const k = base + x, p = (y * OW + x) * 4;
+          d[p] = o[k] * 255;
+          d[p + 1] = o[oplane + k] * 255;
+          d[p + 2] = o[2 * oplane + k] * 255;
+          d[p + 3] = 255;
+        }
+      }
+      octx.putImageData(tile, x0 * S, y0 * S);
+      result[outName].dispose?.();
+      onTile(++done, total);
+      await tick();
+    }
+  }
+
+  if (hasTransparency(src)) restoreAlpha(out, img);
+  return out;
+}
+
+function hasTransparency(rgba) {
+  for (let i = 3; i < rgba.length; i += 4) if (rgba[i] < 255) return true;
+  return false;
+}
+
+/** Real-ESRGAN is RGB-only; carry the source alpha over with a smooth resize. */
+function restoreAlpha(canvas, img) {
+  const w = canvas.width, h = canvas.height;
+  const a = document.createElement('canvas');
+  a.width = w; a.height = h;
+  const actx = a.getContext('2d', { willReadFrequently: true });
+  actx.imageSmoothingQuality = 'high';
+  actx.drawImage(img, 0, 0, w, h);
+  const alpha = actx.getImageData(0, 0, w, h).data;
+  a.width = a.height = 0;
+  const ctx = canvas.getContext('2d');
+  const data = ctx.getImageData(0, 0, w, h);
+  for (let i = 3; i < alpha.length; i += 4) data.data[i] = alpha[i];
+  ctx.putImageData(data, 0, 0);
+}
+
+/** Resize to the final size; halves step by step so large downscales stay sharp. */
+function finishCanvas(src, w, h, fill) {
+  let cur = src;
+  while (cur.width / 2 >= w && cur.height / 2 >= h) {
+    const next = document.createElement('canvas');
+    next.width = Math.round(cur.width / 2); next.height = Math.round(cur.height / 2);
+    const nctx = next.getContext('2d');
+    nctx.imageSmoothingQuality = 'high';
+    nctx.drawImage(cur, 0, 0, next.width, next.height);
+    if (cur !== src) cur.width = cur.height = 0;
+    cur = next;
+  }
+  if (cur.width === w && cur.height === h && !fill) return cur;
+  const final = document.createElement('canvas');
+  final.width = w; final.height = h;
+  const fctx = final.getContext('2d');
+  fctx.imageSmoothingEnabled = true;
+  fctx.imageSmoothingQuality = 'high';
+  if (fill) { fctx.fillStyle = fill; fctx.fillRect(0, 0, w, h); }
+  fctx.drawImage(cur, 0, 0, w, h);
+  if (cur !== src) cur.width = cur.height = 0;
+  return final;
+}
+
+async function upscaleOne(img, w, h, fmtVal, aiReady, onTile, signal) {
+  const big = aiReady ? await esrganUpscale(img, w, h, onTile, signal) : await smartUpscale(img, w, h);
+  const final = finishCanvas(big, w, h, fmtVal === 'jpeg' ? '#ffffff' : null);
+  const blob = await canvasToBlob(final, fmtMime(fmtVal), fmtVal === 'png' ? undefined : 0.95);
+  if (final !== big) final.width = final.height = 0;
+  big.width = big.height = 0;
+  return blob;
+}
+
+window.doUpscale = runJob(async signal => {
+  if (folder.on) return folderUpscale(signal);
+  if (!files.length) return;
+  const fmtVal = document.getElementById('fmtUpscale').value;
+  if (!upscaleTarget(files[0].img).w) { alert('Enter a target width first.'); return; }
+
+  resetBatch('upscale');
+  hide('cardResult'); hide('cardUpscaleResult');
+  beginJob('Upscaling');
+  progress(1, 'Loading Real-ESRGAN AI…');
+
+  let aiReady = true;
+  try { await untilAborted(ensureUpscaler(), signal); }
+  catch (err) {
+    if (isAbort(err)) return;
+    aiReady = false;
+  }
+
+  const n = files.length;
+  const rows = [];
+  let single = null, stopped = 0;
+  for (let i = 0; i < n; i++) {
+    if (signal.aborted) { stopped = n - i; break; }
+    const { file, img, url: thumbUrl } = files[i];
+    const { w, h, label } = upscaleTarget(img);
+    const outName = `${baseName(file)}_upscaled_${label}.${extOf(fmtVal)}`;
+    const prefix = n > 1 ? `Upscaling ${i + 1}/${n}: ${file.name}` : `Upscaling ${file.name}`;
+    markThumb(i, 'processing');
+    progress((i / n) * 100, `${prefix}…`);
+    await tick();
+    try {
+      const blob = await upscaleOne(img, w, h, fmtVal, aiReady,
+        (d, t) => progress(((i + d / t) / n) * 98, `${prefix} — tile ${d}/${t}`), signal);
+      markThumb(i, 'done');
+      if (n === 1) { single = { blob, file, img, outName }; break; }
+      const { url, name } = addToBatch('upscale', blob, outName);
+      rows.push(batchRow(thumbUrl, name, `${img.naturalWidth}×${img.naturalHeight} → ${w}×${h} · ${fmt(blob.size)}`, url));
+    } catch (err) {
+      if (isAbort(err)) { markThumb(i, null); stopped = n - i; break; }
+      console.error('Upscale failed:', err);
+      markThumb(i, 'failed');
+      rows.push(batchRow(thumbUrl, outName, `Failed: ${esc(err.message || 'out of memory')}`, null));
+    }
+  }
+
+  progress(100, 'Done!');
+  if (single) { showProcessResult(single.blob, fmtVal, single.file, single.img, single.outName); return; }
+  if (n === 1) {
+    hide('cardProcessing');
+    if (!stopped) alert(`Upscaling failed. Try a smaller scale factor.`);
+    return;
+  }
+  endBatch('upscale', 'cardUpscaleResult', rows, stopped);
+});
+
+/** Last-resort fallback when no AI runtime can load: stepped resize + unsharp mask. */
+async function smartUpscale(img, targetW, targetH) {
+  let cw = img.naturalWidth ?? img.width, ch = img.naturalHeight ?? img.height;
+  let canvas = document.createElement('canvas');
+  canvas.width = cw;
+  canvas.height = ch;
+  canvas.getContext('2d').drawImage(img, 0, 0);
+  while (cw < targetW || ch < targetH) {
+    const sw = Math.min(cw * 2, targetW);
+    const sh = Math.min(ch * 2, targetH);
+    const next = document.createElement('canvas');
+    next.width = sw; next.height = sh;
+    const ctx = next.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(canvas, 0, 0, sw, sh);
+    canvas = next; cw = sw; ch = sh;
+    await tick();
+  }
+  return applyUnsharpMask(canvas, 1.0, 1.4);
+}
+
+function applyUnsharpMask(src, radius, amount) {
+  const w = src.width, h = src.height;
+  const origCtx = src.getContext('2d');
+  const origData = origCtx.getImageData(0, 0, w, h);
+  const blurCanvas = document.createElement('canvas');
+  blurCanvas.width = w; blurCanvas.height = h;
+  const bCtx = blurCanvas.getContext('2d');
+  bCtx.filter = `blur(${radius}px)`;
+  bCtx.drawImage(src, 0, 0);
+  const blurData = bCtx.getImageData(0, 0, w, h);
+  const out = origCtx.createImageData(w, h);
+  for (let i = 0; i < origData.data.length; i += 4) {
+    for (let c = 0; c < 3; c++) {
+      out.data[i+c] = origData.data[i+c] + amount * (origData.data[i+c] - blurData.data[i+c]);
+    }
+    out.data[i+3] = origData.data[i+3];
+  }
+  const result = document.createElement('canvas');
+  result.width = w; result.height = h;
+  result.getContext('2d').putImageData(out, 0, 0);
+  return result;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// REMOVE BACKGROUND — BiRefNet / ISNet via Transformers.js
+// ═══════════════════════════════════════════════════════════════
+const bgEngines = {};
+const bgDevices = {};
+
+function showBGReady(key) {
+  const device = bgDevices[key];
+  setAiStrip('bgDot', 'bgMsg', device === 'webgpu' ? 'ready' : 'warn', `${BG_MODELS[key].label} ready — ${deviceLabel(device)}`);
+}
+
+function ensureBGEngine(key) {
+  if (!bgEngines[key]) {
+    const cfg = BG_MODELS[key];
+    bgEngines[key] = (async () => {
+      setAiStrip('bgDot', 'bgMsg', 'loading', `Loading ${cfg.label} model (${cfg.size}, one-time download)…`);
+      const T = await import(TJS_URL);
+      T.env.allowLocalModels = false;
+      const progress_callback = p => {
+        if (p.status === 'progress' && p.total > 1e6) {
+          setAiStrip('bgDot', 'bgMsg', 'loading',
+            `Downloading ${cfg.label} model… ${Math.round(p.loaded / p.total * 100)}% of ${fmt(p.total)} (one-time)`);
+        }
+      };
+      const load = device => cfg.kind === 'birefnet'
+        ? loadBiRefNet(T, cfg, device, progress_callback)
+        : loadISNet(T, cfg, device, progress_callback);
+      let run = null, device = 'wasm';
+      if (await hasWebGPU()) {
+        try { run = await load('webgpu'); device = 'webgpu'; }
+        catch (err) { console.warn(`${cfg.label} on WebGPU failed, falling back to CPU:`, err); }
+      }
+      if (!run) run = await load('wasm');
+      bgDevices[key] = device;
+      if (document.getElementById('bgModel').value === key) showBGReady(key);
+      return run;
+    })().catch(err => {
+      delete bgEngines[key];
+      console.warn(`${cfg.label} failed to load:`, err);
+      setAiStrip('bgDot', 'bgMsg', 'err', `${cfg.label} model failed to load — check your connection and try again`);
+      throw err;
+    });
+  }
+  return bgEngines[key];
+}
+
+window.onBGModelChange = () => {
+  const key = document.getElementById('bgModel').value;
+  const cfg = BG_MODELS[key];
+  if (bgDevices[key]) showBGReady(key);
+  else if (bgEngines[key]) setAiStrip('bgDot', 'bgMsg', 'loading', `Loading ${cfg.label} model (${cfg.size}, one-time download)…`);
+  else setAiStrip('bgDot', 'bgMsg', '', `${cfg.label} model (${cfg.size}) — downloads once when you click Remove Background`);
+};
+
+const BG_PREFS_KEY = 'bgOutputPrefs.v2';
+
+window.syncBGOptions = () => {
+  const fmtSel = document.getElementById('bgFmt');
+  const fill = document.getElementById('bgFill');
+  const jpeg = fmtSel.value === 'jpeg';
+  fill.querySelector('option[value="transparent"]').disabled = jpeg;
+  if (jpeg && fill.value === 'transparent') fill.value = '#ffffff';
+  document.getElementById('bgJpegHint').classList.toggle('hidden', !jpeg);
+  try { localStorage.setItem(BG_PREFS_KEY, JSON.stringify({ fmt: fmtSel.value, fill: fill.value })); } catch {}
+};
+
+try {
+  const saved = JSON.parse(localStorage.getItem(BG_PREFS_KEY) || 'null');
+  const pick = (id, v) => {
+    const sel = document.getElementById(id);
+    if (v && [...sel.options].some(o => o.value === v)) sel.value = v;
+  };
+  pick('bgFmt', saved?.fmt);
+  pick('bgFill', saved?.fill);
+} catch {}
+syncBGOptions();
+
+/** BiRefNet-lite 512: returns a sigmoid alpha mask at the model's 512×512 resolution. */
+async function loadBiRefNet(T, cfg, device, progress_callback) {
+  const model = await T.AutoModel.from_pretrained(cfg.id, {
+    device, dtype: device === 'webgpu' ? 'fp16' : 'fp32', progress_callback,
+  });
+  const processor = await T.AutoProcessor.from_pretrained(cfg.id, { progress_callback });
+  return async file => {
+    const image = await T.RawImage.fromBlob(file);
+    const { pixel_values } = await processor(image);
+    const out = await model({ input_image: pixel_values });
+    const logits = out.logits ?? Object.values(out)[0];
+    const [mh, mw] = logits.dims.slice(-2);
+    const raw = logits.data instanceof Uint16Array ? halfToFloat(logits.data) : logits.data;
+    const mask = new Uint8ClampedArray(mw * mh);
+    for (let i = 0; i < mask.length; i++) mask[i] = 255 / (1 + Math.exp(-raw[i]));
+    pixel_values.dispose?.();
+    logits.dispose?.();
+    return { mask, mw, mh };
+  };
+}
+
+/** ISNet int8: the background-removal pipeline returns the image with the mask in its alpha channel. */
+async function loadISNet(T, cfg, device, progress_callback) {
+  const segmenter = await T.pipeline('background-removal', cfg.id, { device, dtype: 'q8', progress_callback });
+  return async file => {
+    let res = await segmenter(await T.RawImage.fromBlob(file));
+    if (Array.isArray(res)) res = res[0];
+    const { width: mw, height: mh, channels, data } = res;
+    const mask = new Uint8ClampedArray(mw * mh);
+    for (let i = 0; i < mask.length; i++) mask[i] = data[i * channels + channels - 1];
+    return { mask, mw, mh };
+  };
+}
+
+function halfToFloat(h) {
+  const out = new Float32Array(h.length);
+  for (let i = 0; i < h.length; i++) {
+    const v = h[i], s = v & 0x8000 ? -1 : 1, e = (v >> 10) & 0x1f, f = v & 0x3ff;
+    out[i] = e === 0 ? s * 2 ** -14 * (f / 1024)
+           : e === 31 ? (f ? NaN : s * Infinity)
+           : s * 2 ** (e - 15) * (1 + f / 1024);
+  }
+  return out;
+}
+
+/** The model mask smoothly scaled to W × H, as an opaque grey canvas (mask value in every colour channel). */
+function maskCanvas(mask, mw, mh, W, H) {
+  const m = document.createElement('canvas');
+  m.width = mw; m.height = mh;
+  const mctx = m.getContext('2d');
+  const md = mctx.createImageData(mw, mh);
+  for (let i = 0; i < mask.length; i++) {
+    md.data[i * 4] = md.data[i * 4 + 1] = md.data[i * 4 + 2] = mask[i];
+    md.data[i * 4 + 3] = 255;
+  }
+  mctx.putImageData(md, 0, 0);
+
+  const out = document.createElement('canvas');
+  out.width = W; out.height = H;
+  const ctx = out.getContext('2d', { willReadFrequently: true });
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(m, 0, 0, W, H);
+  m.width = m.height = 0;
+  return out;
+}
+
+/** Scales the mask to the original size and applies it as the alpha channel. */
+function applyMask(img, mask, mw, mh) {
+  const W = img.naturalWidth, H = img.naturalHeight;
+  const mc = maskCanvas(mask, mw, mh, W, H);
+  const alpha = mc.getContext('2d').getImageData(0, 0, W, H).data;
+  mc.width = mc.height = 0;
+
+  const out = document.createElement('canvas');
+  out.width = W; out.height = H;
+  const ctx = out.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(img, 0, 0);
+  const px = ctx.getImageData(0, 0, W, H);
+  for (let i = 3; i < px.data.length; i += 4) px.data[i] = px.data[i] * alpha[i - 3] / 255;
+  ctx.putImageData(px, 0, 0);
+  return out;
+}
+
+async function buildBGOutput(cutout, fmtVal, fillColor) {
+  if (fmtVal === 'jpeg' && fillColor === 'transparent') fillColor = '#ffffff';
+  let canvas = cutout;
+  if (fillColor !== 'transparent') {
+    canvas = document.createElement('canvas');
+    canvas.width = cutout.width; canvas.height = cutout.height;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = fillColor;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(cutout, 0, 0);
+  }
+  try {
+    if (fmtVal === 'jpeg' || fmtVal === 'webp') return { blob: await encodeCanvas(canvas, fmtVal), ext: extOf(fmtVal) };
+    const png = await canvasToBlob(canvas, 'image/png');
+    if (fmtVal !== 'svg') return { blob: png, ext: 'png' };
+    const dataUrl = await new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(png); });
+    const { width: w, height: h } = cutout;
+    const svg = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">\n  <image width="${w}" height="${h}" xlink:href="${dataUrl}"/>\n</svg>`;
+    return { blob: new Blob([svg], { type: 'image/svg+xml' }), ext: 'svg' };
+  } finally {
+    if (canvas !== cutout) canvas.width = canvas.height = 0;
+  }
+}
+
+/** MozJPEG / WebP via the codec workers, falling back to the browser's own encoder. */
+async function encodeCanvas(canvas, fmtVal, quality = 0.92) {
+  try {
+    const png = await canvasToBlob(canvas, 'image/png');
+    const { blob } = await runCodec('convert', { file: png, fmt: fmtVal, quality });
+    return blob;
+  } catch (err) {
+    if (isAbort(err)) throw err;
+    return canvasToBlob(canvas, `image/${fmtVal}`, quality);
+  }
+}
+
+async function removeBGOne(run, file, img, fmtVal, fillColor, signal) {
+  const { mask, mw, mh } = await run(file);
+  signal.throwIfAborted();
+  const cutout = applyMask(img, mask, mw, mh);
+  const out = await buildBGOutput(cutout, fmtVal, fillColor);
+  cutout.width = cutout.height = 0;
+  return out;
+}
+
+window.doRemoveBG = runJob(async signal => {
+  if (folder.on) return folderRemoveBG(signal);
+  if (!files.length) return;
+  const key       = document.getElementById('bgModel').value;
+  const fmtVal    = document.getElementById('bgFmt').value;
+  const fillColor = document.getElementById('bgFill').value;
+  const cfg       = BG_MODELS[key];
+
+  resetBatch('removebg');
+  hide('cardBGResult'); hide('cardBGBatchResult');
+  beginJob('Removing Background');
+  progress(1, `Loading ${cfg.label} model…`);
+
+  let run;
+  try { run = await untilAborted(ensureBGEngine(key), signal); }
+  catch {
+    hide('cardProcessing');
+    if (!signal.aborted) alert('Could not load the background removal model. Check your connection and try again.');
+    return;
+  }
+
+  const n = files.length;
+  const rows = [];
+  let stopped = 0;
+  for (let i = 0; i < n; i++) {
+    if (signal.aborted) { stopped = n - i; break; }
+    const { file, img, url: thumbUrl } = files[i];
+    markThumb(i, 'processing');
+    progress((i / n) * 98 + 1, n > 1 ? `Removing background ${i + 1}/${n}: ${file.name}…` : `Removing background from ${file.name}…`);
+    await tick();
+    try {
+      const { blob, ext } = await removeBGOne(run, file, img, fmtVal, fillColor, signal);
+      const outName = `${baseName(file)}_no_bg.${ext}`;
+      markThumb(i, 'done');
+      if (n === 1) { showBGResult(blob, outName, files[i].url); return; }
+      const { url, name } = addToBatch('removebg', blob, outName);
+      rows.push(batchRow(thumbUrl, name, `${img.naturalWidth}×${img.naturalHeight} · ${fmt(blob.size)} · ${ext.toUpperCase()}`, url));
+    } catch (err) {
+      if (isAbort(err)) { markThumb(i, null); stopped = n - i; break; }
+      console.error('Background removal failed:', err);
+      markThumb(i, 'failed');
+      rows.push(batchRow(thumbUrl, `${baseName(file)}_no_bg`, `Failed: ${esc(err.message || 'unknown error')}`, null));
+    }
+  }
+
+  progress(100, 'Done!');
+  if (n === 1) {
+    hide('cardProcessing');
+    if (!stopped) alert('Background removal failed. Try the other AI model.');
+    return;
+  }
+  endBatch('removebg', 'cardBGBatchResult', rows, stopped);
+});
+
+function showBGResult(blob, name, origUrl) {
+  lastBGUrls.forEach(u => URL.revokeObjectURL(u));
+  const url = URL.createObjectURL(blob);
+  lastBGUrls = [url];
+  document.getElementById('bgImgOrig').src = origUrl;
+  document.getElementById('bgImgResult').src = url;
+  const dl = document.getElementById('bgDlBtn');
+  dl.href = url; dl.download = name;
+  progress(100, 'Done!');
+  hide('cardProcessing');
+  show('cardBGResult');
+}
+
+window.resetBG = () => { hide('cardBGResult'); };
+
+// ═══════════════════════════════════════════════════════════════
+// PROCEDURES — product photos on pure white, centered in a 2048² square, saved as `fmt`.
+// Each entry gets its own menu item, pane, border setting and results list.
+// ═══════════════════════════════════════════════════════════════
+const PROCEDURES = {
+  eshop:   { name: 'E-shop Images',  icon: '🛍️', fmt: 'webp', quality: 0.9 },
+  konimbo: { name: 'Konimbo Format', icon: '🏷️', fmt: 'jpeg', quality: 0.92 },
+};
+const FMT_LABEL = { webp: 'WebP', jpeg: 'JPEG' };
+const SQUARE_SIZE = 2048;
+const SQUARE_AI_MAX_IN = 1024;      // 4× of this already exceeds 2048, so larger crops are pre-shrunk to save time
+const MASK_ON = 64;                 // mask value that counts as "product" when measuring the box
+let activeProc = Object.keys(PROCEDURES)[0];
+
+function renderProcedures() {
+  const entries = Object.entries(PROCEDURES);
+  document.getElementById('procMenu').innerHTML = entries.map(([k, p]) => `
+    <button class="proc-item" data-proc="${k}">
+      <span class="pi-name">${p.icon} ${p.name}</span>
+      <span class="pi-desc">White background · centered 2048² · ${FMT_LABEL[p.fmt]}</span>
+    </button>`).join('');
+  document.getElementById('procBody').innerHTML = entries.map(([k, p]) => `
+    <div class="proc-pane hidden" id="proc_${k}">
+      <div class="card">
+        <div class="card-title">${p.name}</div>
+        <div class="ai-strip">
+          <div class="ai-dot" id="${k}Dot"></div>
+          <span id="${k}Msg">BiRefNet + Real-ESRGAN AI (free, runs on your device) — loads when you open this procedure</span>
+        </div>
+        <ol class="proc-steps">
+          <li>Remove the background and replace it with pure white</li>
+          <li>Center the product in a 2048 × 2048 square with a minimal border — upscaled with AI when needed</li>
+          <li>Save as ${FMT_LABEL[p.fmt]}</li>
+        </ol>
+        <div class="fields">
+          <div class="field">
+            <label for="${k}Margin">Border Around Product</label>
+            <input type="range" id="${k}Margin" class="range" min="0" max="15" step="1" value="5" oninput="onProcMargin('${k}')">
+            <div class="hint ok" id="${k}MarginHint"></div>
+          </div>
+        </div>
+        <button class="btn-main btn-proc" onclick="runProcedure('${k}')" disabled>${p.icon} Run ${p.name}</button>
+      </div>
+      <div class="card hidden proc-result" id="${k}Result">
+        <div class="card-title">${p.name} — Results</div>
+        <div class="batch-list" id="${k}BatchList"></div>
+        <div class="hidden" id="${k}ZipRow" style="margin-top:12px;">
+          <button class="btn-dl" onclick="downloadBatchZip('${k}')">📦 Download All as ZIP</button>
+        </div>
+      </div>
+    </div>`).join('');
+  document.querySelectorAll('.proc-item').forEach(b => b.addEventListener('click', () => openProcedure(b.dataset.proc)));
+
+  for (const k of Object.keys(PROCEDURES)) {
+    batches[k] = [];
+    ZIP_NAMES[k] = `${k}_images.zip`;
+    try {
+      const saved = JSON.parse(localStorage.getItem(`${k}Prefs.v1`) || 'null');
+      if (Number.isFinite(saved?.margin)) document.getElementById(`${k}Margin`).value = Math.min(15, Math.max(0, saved.margin));
+    } catch {}
+    onProcMargin(k);
+  }
+  openProcedure(activeProc, false);
+  refreshButtons();
+}
+
+function openProcedure(key, warm = true) {
+  activeProc = key;
+  document.querySelectorAll('.proc-item').forEach(b => b.classList.toggle('active', b.dataset.proc === key));
+  for (const k of Object.keys(PROCEDURES)) toggle(`proc_${k}`, k === key);
+  if (warm) warmProcedure(key);
+}
+
+/**
+ * Tight box around the product in photo pixels, or null if the mask is empty.
+ * Blobs under 1% of the largest one (dust, shadow remnants) are dropped on the
+ * low-res mask; the box is then measured exactly on the full-size mask.
+ */
+function productBox(mask, mw, mh, full, W, H) {
+  const label = new Int32Array(mw * mh);
+  const stack = new Int32Array(mw * mh);
+  const blobs = [];
+  for (let start = 0; start < mask.length; start++) {
+    if (mask[start] < MASK_ON || label[start]) continue;
+    const id = blobs.length + 1;
+    const b = { area: 0, x0: mw, y0: mh, x1: -1, y1: -1 };
+    let top = 0;
+    stack[top++] = start; label[start] = id;
+    while (top) {
+      const p = stack[--top], x = p % mw, y = (p - x) / mw;
+      b.area++;
+      if (x < b.x0) b.x0 = x; if (x > b.x1) b.x1 = x;
+      if (y < b.y0) b.y0 = y; if (y > b.y1) b.y1 = y;
+      if (x > 0      && !label[p - 1]  && mask[p - 1]  >= MASK_ON) { label[p - 1] = id;  stack[top++] = p - 1; }
+      if (x < mw - 1 && !label[p + 1]  && mask[p + 1]  >= MASK_ON) { label[p + 1] = id;  stack[top++] = p + 1; }
+      if (y > 0      && !label[p - mw] && mask[p - mw] >= MASK_ON) { label[p - mw] = id; stack[top++] = p - mw; }
+      if (y < mh - 1 && !label[p + mw] && mask[p + mw] >= MASK_ON) { label[p + mw] = id; stack[top++] = p + mw; }
+    }
+    blobs.push(b);
+  }
+  if (!blobs.length) return null;
+  const biggest = blobs.reduce((m, b) => Math.max(m, b.area), 0);
+  let x0 = mw, y0 = mh, x1 = -1, y1 = -1;
+  for (const b of blobs) {
+    if (b.area < biggest * 0.01) continue;
+    x0 = Math.min(x0, b.x0); y0 = Math.min(y0, b.y0);
+    x1 = Math.max(x1, b.x1); y1 = Math.max(y1, b.y1);
+  }
+
+  const sx = W / mw, sy = H / mh;
+  const rx0 = Math.max(0, Math.floor((x0 - 2) * sx)), rx1 = Math.min(W - 1, Math.ceil((x1 + 3) * sx));
+  const ry0 = Math.max(0, Math.floor((y0 - 2) * sy)), ry1 = Math.min(H - 1, Math.ceil((y1 + 3) * sy));
+  let bx0 = W, by0 = H, bx1 = -1, by1 = -1;
+  for (let y = ry0; y <= ry1; y++) {
+    const row = y * W;
+    for (let x = rx0; x <= rx1; x++) {
+      if (full[(row + x) * 4] < MASK_ON) continue;
+      if (x < bx0) bx0 = x; if (x > bx1) bx1 = x;
+      if (y < by0) by0 = y; if (y > by1) by1 = y;
+    }
+  }
+  return bx1 < 0 ? null : { x: bx0, y: by0, w: bx1 - bx0 + 1, h: by1 - by0 + 1 };
+}
+
+/**
+ * Centers the product in a square with `margin` (fraction per side) around its longest side,
+ * upscales the photo crop with Real-ESRGAN when it is smaller than 2048, and composites it on
+ * pure white through the separately scaled mask so edges stay clean and the background is #FFFFFF.
+ */
+async function productSquare(img, maskC, box, margin, upscale, onTile, signal) {
+  const side = Math.max(1, Math.ceil(Math.max(box.w, box.h) / (1 - 2 * margin)));
+  const sqX = box.x + box.w / 2 - side / 2;
+  const sqY = box.y + box.h / 2 - side / 2;
+
+  const crop = document.createElement('canvas');
+  crop.width = crop.height = side;
+  const cctx = crop.getContext('2d');
+  cctx.fillStyle = '#ffffff';
+  cctx.fillRect(0, 0, side, side);
+  cctx.drawImage(img, -sqX, -sqY);
+
+  const mcrop = document.createElement('canvas');
+  mcrop.width = mcrop.height = side;
+  const mctx = mcrop.getContext('2d');
+  mctx.fillStyle = '#000000';
+  mctx.fillRect(0, 0, side, side);
+  mctx.drawImage(maskC, -sqX, -sqY);
+
+  let rgb;
+  if (side < SQUARE_SIZE && upscale) {
+    const aiIn = side > SQUARE_AI_MAX_IN ? finishCanvas(crop, SQUARE_AI_MAX_IN, SQUARE_AI_MAX_IN) : crop;
+    const big = await esrganUpscale(aiIn, SQUARE_SIZE, SQUARE_SIZE, onTile, signal);
+    if (aiIn !== crop) aiIn.width = aiIn.height = 0;
+    rgb = finishCanvas(big, SQUARE_SIZE, SQUARE_SIZE);
+    if (rgb !== big) big.width = big.height = 0;
+  } else if (side < SQUARE_SIZE) {
+    rgb = finishCanvas(await smartUpscale(crop, SQUARE_SIZE, SQUARE_SIZE), SQUARE_SIZE, SQUARE_SIZE);
+  } else {
+    rgb = finishCanvas(crop, SQUARE_SIZE, SQUARE_SIZE);
+  }
+  if (rgb !== crop) crop.width = crop.height = 0;
+
+  const m = finishCanvas(mcrop, SQUARE_SIZE, SQUARE_SIZE);
+  const md = m.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, SQUARE_SIZE, SQUARE_SIZE).data;
+  if (m !== mcrop) m.width = m.height = 0;
+  mcrop.width = mcrop.height = 0;
+
+  const ctx = rgb.getContext('2d', { willReadFrequently: true });
+  const px = ctx.getImageData(0, 0, SQUARE_SIZE, SQUARE_SIZE);
+  const d = px.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const a = md[i] / 255, w = 255 * (1 - a);
+    d[i] = d[i] * a + w;
+    d[i + 1] = d[i + 1] * a + w;
+    d[i + 2] = d[i + 2] * a + w;
+    d[i + 3] = 255;
+  }
+  ctx.putImageData(px, 0, 0);
+  return { canvas: rgb, side };
+}
+
+function procMargin(k) { return parseInt(document.getElementById(`${k}Margin`).value, 10) / 100; }
+
+function onProcMargin(k) {
+  const pct = Math.round(procMargin(k) * 100);
+  document.getElementById(`${k}MarginHint`).textContent =
+    `${pct}% white border per side — the product fills ~${100 - 2 * pct}% of the 2048 × 2048 frame`;
+  try { localStorage.setItem(`${k}Prefs.v1`, JSON.stringify({ margin: pct })); } catch {}
+}
+window.onProcMargin = onProcMargin;
+
+function warmProcedure(k) {
+  const dot = `${k}Dot`, msg = `${k}Msg`;
+  setAiStrip(dot, msg, 'loading', 'Loading AI models — BiRefNet background removal + Real-ESRGAN upscaler (one-time download)…');
+  Promise.all([ensureBGEngine('quality'), ensureUpscaler()])
+    .then(([, up]) => {
+      const gpu = bgDevices.quality === 'webgpu' && up.device === 'webgpu';
+      setAiStrip(dot, msg, gpu ? 'ready' : 'warn', `BiRefNet + Real-ESRGAN ready — ${deviceLabel(gpu ? 'webgpu' : 'wasm')}`);
+    })
+    .catch(() => setAiStrip(dot, msg, 'err', 'An AI model failed to load — check your connection and try again'));
+}
+
+const procRunners = {};
+window.runProcedure = k => (procRunners[k] ??= runJob(signal => runSquareProcedure(k, signal)))();
+
+/** Loads both models a procedure needs; null if background removal can't load (or Stop was pressed). */
+async function loadSquareEngines(signal) {
+  progress(1, 'Loading BiRefNet background removal model…');
+  let run;
+  try { run = await untilAborted(ensureBGEngine('quality'), signal); }
+  catch (err) {
+    if (!isAbort(err)) alert('Could not load the background removal model. Check your connection and try again.');
+    return null;
+  }
+  progress(2, 'Loading Real-ESRGAN upscaler…');
+  let upscale = true;
+  try { await untilAborted(ensureUpscaler(), signal); }
+  catch (err) {
+    if (isAbort(err)) return null;
+    upscale = false;
+  }
+  return { run, upscale };
+}
+
+/** One photo through a procedure; `report(fraction, step)` describes progress within this photo. */
+async function squareOne(k, engines, file, img, report, signal) {
+  const proc = PROCEDURES[k];
+  const label = FMT_LABEL[proc.fmt];
+  report(0, 'Step 1/3 — Removing background');
+  await tick();
+  const { mask, mw, mh } = await engines.run(file);
+  signal.throwIfAborted();
+  const W = img.naturalWidth, H = img.naturalHeight;
+  const maskC = maskCanvas(mask, mw, mh, W, H);
+  const full = maskC.getContext('2d').getImageData(0, 0, W, H).data;
+  const found = productBox(mask, mw, mh, full, W, H);
+  const box = found || { x: 0, y: 0, w: W, h: H };
+
+  report(0.3, 'Step 2/3 — Centering and upscaling');
+  await tick();
+  const { canvas, side } = await productSquare(img, maskC, box, procMargin(k), engines.upscale,
+    (d, t) => report(0.3 + 0.6 * d / t, `Step 2/3 — Upscaling — tile ${d}/${t}`), signal);
+  maskC.width = maskC.height = 0;
+
+  report(0.92, `Step 3/3 — Saving ${label}`);
+  const blob = await encodeCanvas(canvas, proc.fmt, proc.quality);
+  canvas.width = canvas.height = 0;
+
+  const notes = [];
+  if (!found) notes.push('no product detected, whole photo used');
+  if (side < SQUARE_SIZE / 4) notes.push('low-resolution source');
+  return {
+    blob,
+    info: `${W}×${H} → ${SQUARE_SIZE}×${SQUARE_SIZE} · ${fmt(blob.size)} · ${label.toUpperCase()}${notes.length ? ` · ⚠ ${notes.join(', ')}` : ''}`,
+  };
+}
+
+async function runSquareProcedure(k, signal) {
+  if (folder.on) return folderProcedure(k, signal);
+  if (!files.length) return;
+  const proc = PROCEDURES[k];
+
+  resetBatch(k);
+  hide(`${k}Result`);
+  beginJob(proc.name);
+  const engines = await loadSquareEngines(signal);
+  if (!engines) { hide('cardProcessing'); return; }
+
+  const n = files.length;
+  const rows = [];
+  let stopped = 0;
+  for (let i = 0; i < n; i++) {
+    if (signal.aborted) { stopped = n - i; break; }
+    const { file, img, url: thumbUrl } = files[i];
+    const outName = `${baseName(file)}_${k}.${extOf(proc.fmt)}`;
+    const who = n > 1 ? `${i + 1}/${n} ${file.name}` : file.name;
+    const at = f => ((i + f) / n) * 98 + 1;
+    markThumb(i, 'processing');
+    try {
+      const { blob, info } = await squareOne(k, engines, file, img, (f, step) => progress(at(f), `${step}: ${who}…`), signal);
+      markThumb(i, 'done');
+      const { url, name } = addToBatch(k, blob, outName);
+      rows.push(batchRow(thumbUrl, name, info, url));
+    } catch (err) {
+      if (isAbort(err)) { markThumb(i, null); stopped = n - i; break; }
+      console.error(`${proc.name} failed:`, err);
+      markThumb(i, 'failed');
+      rows.push(batchRow(thumbUrl, outName, `Failed: ${esc(err.message || 'unknown error')}`, null));
+    }
+  }
+
+  progress(100, 'Done!');
+  endBatch(k, `${k}Result`, rows, stopped);
+}
+
+renderProcedures();
+
+// ═══════════════════════════════════════════════════════════════
+// SHARED: Show compress/upscale single-file result
+// ═══════════════════════════════════════════════════════════════
+function showProcessResult(blob, fmtVal, file, img, downloadName, note) {
+  hide('cardProcessing');
+  if (!blob) {
+    alert('Could not reach target. Try a different strategy or a larger target size.');
+    return;
+  }
+  if (lastResultUrl) URL.revokeObjectURL(lastResultUrl);
+  const url = lastResultUrl = URL.createObjectURL(blob);
+  document.getElementById('imgOrig').src = img.src;
+  const rImg = document.getElementById('imgResult');
+  rImg.onload = () => {
+    document.getElementById('rDims').textContent =
+      `${img.naturalWidth}×${img.naturalHeight}  →  ${rImg.naturalWidth}×${rImg.naturalHeight}`;
+  };
+  rImg.src = url;
+  document.getElementById('rSizes').textContent = `${fmt(file.size)}  →  ${fmt(blob.size)}`;
+  const srcFmt = (file.type.split('/')[1] || file.name.split('.').pop() || '?').toUpperCase();
+  document.getElementById('rFmt').textContent = `${srcFmt}  →  ${fmtVal.toUpperCase()}`;
+  const diff = blob.size - file.size;
+  const pct  = Math.abs(diff / file.size * 100).toFixed(1);
+  const warn = note ? `<span class="badge badge-warn">⚠ ${esc(note)}</span>` : '';
+  const rDelta = document.getElementById('rDelta');
+  if (diff < 0)      rDelta.innerHTML = `<span class="badge badge-down">▼ ${pct}% smaller</span>${warn}`;
+  else if (diff > 0) rDelta.innerHTML = `<span class="badge badge-up">▲ ${pct}% larger</span>${warn}`;
+  else               rDelta.innerHTML = `<span class="badge badge-neutral">No change</span>${warn}`;
+
+  const dl = document.getElementById('dlBtn');
+  dl.href = url; dl.download = downloadName || `${baseName(file)}_processed.${extOf(fmtVal)}`;
+  show('cardResult');
+}
+
+window.resetResult = () => hide('cardResult');
+
+window.viewProcessResult = startOrig => openViewer({
+  src: lastResultUrl,
+  orig: document.getElementById('imgOrig').src,
+  name: document.getElementById('dlBtn').download,
+  startOrig,
+});
+
+window.viewBGResult = startOrig => openViewer({
+  src: lastBGUrls[0],
+  orig: document.getElementById('bgImgOrig').src,
+  name: document.getElementById('bgDlBtn').download,
+  transparent: true,
+  startOrig,
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ZOOM VIEWER — fit / 100% / 200%, flip original ⇄ result at the same size
+// ═══════════════════════════════════════════════════════════════
+const viewer = { src: null, orig: null, showOrig: false, zoom: 'fit', w: 0, h: 0, dragged: false };
+
+function openViewer({ src, orig, name, transparent = false, startOrig = false }) {
+  if (!src) return;
+  Object.assign(viewer, { src, orig: orig || null, showOrig: !!(startOrig && orig), zoom: 'fit', w: 0, h: 0 });
+  document.getElementById('vTitle').textContent = name || '';
+  const dl = document.getElementById('vDl');
+  dl.href = src; dl.download = name || 'image';
+  toggle('vCompare', !!orig);
+  document.getElementById('vImg').classList.toggle('checker-bg', transparent);
+  document.getElementById('vHint').textContent = orig
+    ? 'Click image to zoom · drag to move around · press O to flip original / result · Esc to close'
+    : 'Click image to zoom · drag to move around · Esc to close';
+  show('viewer');
+  document.body.style.overflow = 'hidden';
+  loadImg(src).then(img => {
+    viewer.w = img.naturalWidth; viewer.h = img.naturalHeight;
+    renderViewer();
+  }).catch(() => closeViewer());
+}
+
+window.closeViewer = () => {
+  hide('viewer');
+  document.body.style.overflow = '';
+  document.getElementById('vImg').removeAttribute('src');
+};
+
+function fitScale() {
+  const stage = document.getElementById('vStage');
+  return Math.min(1, (stage.clientWidth - 32) / viewer.w, (stage.clientHeight - 32) / viewer.h);
+}
+
+/** Re-renders at the current zoom, keeping the image point at (fx, fy) — fractions of its size — centered. */
+function renderViewer(fx = 0.5, fy = 0.5) {
+  if (!viewer.w) return;
+  const stage = document.getElementById('vStage');
+  const img = document.getElementById('vImg');
+  const scale = viewer.zoom === 'fit' ? fitScale() : viewer.zoom;
+  const src = viewer.showOrig ? viewer.orig : viewer.src;
+  if (img.getAttribute('src') !== src) img.src = src;
+  // Both versions render at the result's size so they line up when flipping.
+  img.style.width = `${Math.round(viewer.w * scale)}px`;
+  img.style.height = `${Math.round(viewer.h * scale)}px`;
+  stage.scrollLeft = fx * viewer.w * scale - stage.clientWidth / 2;
+  stage.scrollTop = fy * viewer.h * scale - stage.clientHeight / 2;
+
+  document.getElementById('viewer').classList.toggle('actual', viewer.zoom !== 'fit');
+  const tag = document.getElementById('vTag');
+  tag.textContent = viewer.showOrig ? 'Original' : 'Result';
+  tag.classList.toggle('orig', viewer.showOrig);
+  document.getElementById('vCompare').textContent = viewer.showOrig ? '⇄ Show result' : '⇄ Show original';
+  document.getElementById('vZoom').textContent =
+    viewer.zoom === 'fit' ? `🔍 Zoom ${nextZoom() * 100}%` : '🔍 Fit to screen';
+}
+
+const nextZoom = () => (fitScale() < 1 ? 1 : 2);
+
+function currentFocus() {
+  const stage = document.getElementById('vStage');
+  const img = document.getElementById('vImg');
+  return [
+    (stage.scrollLeft + stage.clientWidth / 2) / img.offsetWidth,
+    (stage.scrollTop + stage.clientHeight / 2) / img.offsetHeight,
+  ];
+}
+
+window.viewerToggleZoom = (fx, fy) => {
+  if (fx === undefined) [fx, fy] = viewer.zoom === 'fit' ? [0.5, 0.5] : currentFocus();
+  viewer.zoom = viewer.zoom === 'fit' ? nextZoom() : 'fit';
+  renderViewer(fx, fy);
+};
+
+window.viewerToggleCompare = () => {
+  if (!viewer.orig) return;
+  const focus = currentFocus();
+  viewer.showOrig = !viewer.showOrig;
+  renderViewer(...focus);
+};
+
+(() => {
+  const stage = document.getElementById('vStage');
+  const img = document.getElementById('vImg');
+  let drag = null;
+  img.addEventListener('click', e => {
+    if (viewer.dragged) return;
+    const r = img.getBoundingClientRect();
+    viewerToggleZoom((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
+  });
+  stage.addEventListener('pointerdown', e => {
+    viewer.dragged = false;
+    if (viewer.zoom === 'fit') return;
+    drag = { x: e.clientX, y: e.clientY, sl: stage.scrollLeft, st: stage.scrollTop };
+    document.getElementById('viewer').classList.add('dragging');
+  });
+  window.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (Math.abs(dx) + Math.abs(dy) > 4) viewer.dragged = true;
+    stage.scrollLeft = drag.sl - dx;
+    stage.scrollTop = drag.st - dy;
+  });
+  window.addEventListener('pointerup', () => {
+    drag = null;
+    document.getElementById('viewer').classList.remove('dragging');
+  });
+  stage.addEventListener('click', e => { if (e.target === stage && !viewer.dragged) closeViewer(); });
+  window.addEventListener('resize', () => {
+    if (!document.getElementById('viewer').classList.contains('hidden')) renderViewer(...currentFocus());
+  });
+  document.addEventListener('keydown', e => {
+    if (document.getElementById('viewer').classList.contains('hidden')) return;
+    if (e.key === 'Escape') closeViewer();
+    else if (e.key === 'o' || e.key === 'O') viewerToggleCompare();
+  });
+})();
+
+// ═══════════════════════════════════════════════════════════════
+// UTILITIES
+// ═══════════════════════════════════════════════════════════════
+/** Raster for PDF pages: JPEG with white behind transparency. */
+function imageToJpegDataUrl(img, quality) {
+  const c = document.createElement('canvas');
+  c.width = img.naturalWidth;
+  c.height = img.naturalHeight;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, c.width, c.height);
+  ctx.drawImage(img, 0, 0);
+  return c.toDataURL('image/jpeg', quality);
+}
+
+function canvasToBlob(canvas, mime, quality) {
+  return new Promise((res, rej) => canvas.toBlob(b => b ? res(b) : rej(new Error('Image is too large to encode')), mime, quality));
+}
+
+function fmtMime(f) {
+  return { webp: 'image/webp', png: 'image/png', avif: 'image/avif' }[f] || 'image/jpeg';
+}
+function extOf(f)      { return f === 'jpeg' ? 'jpg' : f; }
+function baseName(file) { return file.name.replace(/\.[^.]+$/, '') || 'image'; }
+
+function fmt(bytes) {
+  if (bytes >= 1048576) return (bytes/1048576).toFixed(2)+' MB';
+  if (bytes >= 1024)    return (bytes/1024).toFixed(1)+' KB';
+  return bytes+' B';
+}
+
+function progress(pct, msg) {
+  document.getElementById('progFill').style.width = pct + '%';
+  document.getElementById('progMsg').textContent  = msg;
+}
+
+function show(id)          { document.getElementById(id)?.classList.remove('hidden'); }
+function hide(id)          { document.getElementById(id)?.classList.add('hidden'); }
+function toggle(id, vis)   { vis ? show(id) : hide(id); }
+// MessageChannel yields are not throttled in background tabs, unlike setTimeout
+const yieldChannel = new MessageChannel();
+const yieldQueue = [];
+yieldChannel.port1.onmessage = () => yieldQueue.shift()?.();
+function tick() { return new Promise(r => { yieldQueue.push(r); yieldChannel.port2.postMessage(0); }); }
+function esc(s)            { return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+
+function markThumb(i, cls) {
+  const el = document.getElementById(`ft${i}`);
+  if (el) { el.classList.remove('done', 'processing', 'failed'); if (cls) el.classList.add(cls); }
+}
+
+function triggerDownload(url, name) {
+  const a = document.createElement('a');
+  a.href = url; a.download = name; a.click();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// FOLDER MODE — stream a whole input folder through any tool, one image at a time,
+// writing each result straight into the output folder (same subfolders).
+// Results that already exist are skipped, so a stopped run resumes where it left off.
+// ═══════════════════════════════════════════════════════════════
+const FOLDER_KEEP_ROWS = 50;
+
+if (!('showDirectoryPicker' in window)) { hide('btnFolderMode'); show('folderUnsupported'); }
+
+function folderReady() { return folder.on && !!folder.input && !!folder.output; }
+
+window.enterFolderMode = () => {
+  if (job) return;
+  folder.on = true;
+  hide('uploadZone'); hide('cardFiles'); hide('folderBar'); show('cardFolder');
+  document.getElementById('hintCompress').textContent = '';
+  document.getElementById('hintUpscale').textContent = '';
+  refreshButtons();
+  renderFolderStatus();
+};
+
+window.exitFolderMode = () => {
+  if (job) return;
+  folder.on = false;
+  show('uploadZone'); show('folderBar'); hide('cardFolder'); hide('cardFolderResult');
+  renderFileList();
+  refreshButtons();
+  updateCompressHint();
+  updateUpscaleHint();
+};
+
+window.pickFolder = async which => {
+  if (job) return;
+  let handle;
+  try { handle = await showDirectoryPicker({ id: `pupik-${which}`, mode: which === 'output' ? 'readwrite' : 'read' }); }
+  catch (err) { if (err.name !== 'AbortError') alert(`Could not open that folder: ${err.message}`); return; }
+  const other = folder[which === 'input' ? 'output' : 'input'];
+  if (other && await other.isSameEntry(handle)) {
+    alert('Choose a different folder for the results, so they don’t get mixed in with your originals.');
+    return;
+  }
+  folder[which] = handle;
+  const el = document.getElementById(which === 'input' ? 'folderInName' : 'folderOutName');
+  el.textContent = `📁 ${handle.name}`;
+  el.classList.remove('none');
+  refreshButtons();
+  renderFolderStatus();
+};
+
+let folderScan = 0;
+async function renderFolderStatus() {
+  const el = document.getElementById('folderStatus');
+  if (!folder.input) { el.className = 'hint'; el.textContent = ''; return; }
+  const scan = ++folderScan;
+  el.className = 'hint';
+  el.textContent = 'Counting images…';
+  try {
+    const n = (await listFolderImages()).length;
+    if (scan !== folderScan) return;
+    el.className = n ? 'hint ok' : 'hint warn';
+    el.textContent = !n ? '⚠ No supported images in this folder (JPG, PNG, WebP, AVIF, HEIC, GIF, BMP).'
+      : `✓ ${n.toLocaleString()} image${n > 1 ? 's' : ''} found in “${folder.input.name}”` +
+        (folder.output ? ` — results go to “${folder.output.name}”. Now press the button of the tool you want.` : ' — now choose an output folder.');
+  } catch (err) {
+    if (scan !== folderScan) return;
+    el.className = 'hint err';
+    el.textContent = `⚠ Could not read the folder: ${err.message}`;
+  }
+}
+
+/** Every supported image under the input folder (skipping the output folder if it's inside), in natural order. */
+async function listFolderImages() {
+  const out = [];
+  async function walk(dir, path) {
+    for await (const [name, handle] of dir.entries()) {
+      if (name.startsWith('.')) continue;
+      if (handle.kind === 'directory') {
+        if (folder.output && await handle.isSameEntry(folder.output)) continue;
+        await walk(handle, path ? `${path}/${name}` : name);
+      } else if (SUPPORTED_EXT.has(name.split('.').pop().toLowerCase())) {
+        out.push({ handle, name, path });
+      }
+    }
+  }
+  await walk(folder.input, '');
+  const coll = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+  return out.sort((a, b) => coll.compare(a.path, b.path) || coll.compare(a.name, b.name));
+}
+
+async function ensurePermission(handle, mode) {
+  if (await handle.queryPermission({ mode }) === 'granted') return true;
+  return await handle.requestPermission({ mode }) === 'granted';
+}
+
+async function outDir(path, create) {
+  let dir = folder.output;
+  for (const part of path ? path.split('/') : []) dir = await dir.getDirectoryHandle(part, { create });
+  return dir;
+}
+
+async function outExists(path, name) {
+  try { await (await outDir(path, false)).getFileHandle(name); return true; }
+  catch { return false; }
+}
+
+/** The file only appears in the folder once fully written, so a stopped run never leaves half a file. */
+async function writeOut(path, name, blob) {
+  const fh = await (await outDir(path, true)).getFileHandle(name, { create: true });
+  const w = await fh.createWritable();
+  try { await w.write(blob); await w.close(); }
+  catch (err) { await w.abort().catch(() => {}); throw err; }
+}
+
+async function freeOutName(path, name) {
+  let unique = name, n = 2;
+  while (await outExists(path, unique)) unique = name.replace(/(\.[^.]+)?$/, ` (${n++})$1`);
+  return unique;
+}
+
+async function readFolderImage(item, needImg) {
+  let file = await item.handle.getFile();
+  if (isHeicFile(file)) file = await heicToJpeg(file);
+  if (!needImg) return { file };
+  const url = URL.createObjectURL(file);
+  try { return { file, url, img: await loadImg(url) }; }
+  catch { URL.revokeObjectURL(url); throw new Error('Could not read this image'); }
+}
+
+const baseOf = name => name.replace(/\.[^.]+$/, '') || 'image';
+const relPath = (path, name) => path ? `${path}/${name}` : name;
+
+function fmtDuration(ms) {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.round(s / 60);
+  return m < 60 ? `${m} min` : `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
+function folderRow(name, info, ok) {
+  return `
+    <div class="batch-item${ok ? '' : ' failed'}">
+      <div class="bi-info">
+        <div class="bi-name" title="${esc(name)}">${esc(name)}</div>
+        <div class="bi-size">${info}</div>
+      </div>
+    </div>`;
+}
+
+/**
+ * Runs `work({file, img}, report, signal) → {blob, info}` on every image of the input folder.
+ * `lanes` > 1 runs that many images at once (codec-worker tools). `prepare()` loads models (false = abort).
+ * A result without a blob counts as done but writes nothing; `finish(stopped)` may write a final file and return a note.
+ */
+async function runFolder({ title, outName, work, needImg = true, lanes = 1, prepare, finish, resume = true }, signal) {
+  hide('cardFolderResult');
+  beginJob(title);
+  progress(0, 'Reading the input folder…');
+  let items;
+  try {
+    if (!await ensurePermission(folder.input, 'read') || !await ensurePermission(folder.output, 'readwrite')) {
+      alert('The browser needs permission to read the input folder and save into the output folder.');
+      return;
+    }
+    items = await listFolderImages();
+  } catch (err) { alert(`Could not read the input folder: ${err.message}`); return; }
+  if (!items.length) { alert('No supported images found in the input folder.'); return; }
+  if (prepare && !await prepare()) return;
+
+  let wakeLock = null;
+  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { /* not critical */ }
+
+  const total = items.length;
+  const claimed = new Set();
+  const failures = [], recent = [];
+  let next = 0, finished = 0, saved = 0, skipped = 0, failed = 0, worked = 0, workStart = 0;
+  const t0 = performance.now();
+  const eta = () => worked
+    ? ` · about ${fmtDuration((performance.now() - workStart) / worked * (total - finished))} left` : '';
+
+  const lane = async () => {
+    while (!signal.aborted && next < total) {
+      const idx = next++;
+      const item = items[idx];
+      const rel = relPath(item.path, item.name);
+      const want = outName(item);
+      let name = want, n = 2;
+      while (claimed.has(relPath(item.path, name).toLowerCase())) name = want.replace(/(\.[^.]+)?$/, ` (${n++})$1`);
+      claimed.add(relPath(item.path, name).toLowerCase());
+      const report = (f, step) => progress(((finished + (lanes > 1 ? 0 : Math.min(1, f))) / total) * 100,
+        `${step} — ${(idx + 1).toLocaleString()}/${total.toLocaleString()}: ${rel}${eta()}`);
+      let entry = null;
+      try {
+        if (resume && await outExists(item.path, name)) {
+          skipped++;
+          if (skipped % 25 === 0) { progress((finished / total) * 100, `Skipping images already done… ${finished}/${total}`); await tick(); }
+          continue;
+        }
+        workStart ||= performance.now();
+        report(0, 'Working on');
+        entry = await readFolderImage(item, needImg);
+        const { blob, info } = await work(entry, report, signal);
+        if (blob) await writeOut(item.path, name, blob);
+        saved++;
+        worked++;
+        recent.push(folderRow(blob ? relPath(item.path, name) : rel, info, true));
+        if (recent.length > FOLDER_KEEP_ROWS) recent.shift();
+      } catch (err) {
+        if (isAbort(err)) break;
+        console.error(`${title} failed on ${rel}:`, err);
+        failed++;
+        worked++;
+        if (failures.length < 500) failures.push(folderRow(rel, `Failed: ${esc(err.message || 'unknown error')}`, false));
+      } finally {
+        if (entry?.url) URL.revokeObjectURL(entry.url);
+        finished++;
+        if (lanes > 1) report(0, 'Finished');
+      }
+    }
+  };
+
+  try {
+    await Promise.all(Array.from({ length: Math.min(lanes, total) }, lane));
+    const left = total - saved - skipped - failed;
+    let note = '';
+    if (finish) {
+      try { note = await finish(left > 0) || ''; }
+      catch (err) { note = `<span style="color:var(--red)">Could not save: ${esc(err.message)}</span>`; }
+    }
+    progress(100, 'Done!');
+    showFolderResult(title, { saved, skipped, failed, left, ms: performance.now() - t0 }, failures.concat(recent.reverse()), note);
+  } finally {
+    wakeLock?.release().catch(() => {});
+  }
+}
+
+function showFolderResult(title, s, rows, note) {
+  document.getElementById('folderResTitle').textContent = `Folder Results — ${title}`;
+  const parts = [`<span>✅ <b>${s.saved.toLocaleString()}</b> done — saved in “${esc(folder.output.name)}”</span>`];
+  if (s.skipped) parts.push(`<span>⏭ ${s.skipped.toLocaleString()} already done earlier — skipped</span>`);
+  if (s.failed)  parts.push(`<span style="color:var(--red)">❌ ${s.failed.toLocaleString()} failed (listed first below)</span>`);
+  if (s.left)    parts.push(`<span style="color:var(--yellow)">⏹ ${s.left.toLocaleString()} not processed — press the button again to continue</span>`);
+  parts.push(`<span>⏱ ${fmtDuration(s.ms)}</span>`);
+  if (note) parts.push(`<span>${note}</span>`);
+  document.getElementById('folderSummary').innerHTML = parts.join('');
+  document.getElementById('folderResList').innerHTML = rows.join('');
+  toggle('folderResList', rows.length > 0);
+  hide('cardProcessing');
+  show('cardFolderResult');
+}
+
+async function folderConvert(signal) {
+  const fmtVal  = document.getElementById('cvtFmt').value;
+  const quality = parseFloat(document.getElementById('cvtQuality').value);
+  if (fmtVal === 'pdf') return folderPdf(quality, signal);
+  const q = fmtVal === 'png' ? 1 : quality;
+  return runFolder({
+    title: `Converting to ${fmtVal.toUpperCase()}`,
+    outName: item => `${baseOf(item.name)}.${extOf(fmtVal)}`,
+    needImg: false,
+    lanes: codecPool.size,
+    work: async ({ file }) => {
+      const r = await runCodec('convert', { file, fmt: fmtVal, quality: q });
+      return { blob: r.blob, info: `${sizeChange(file.size, r.blob.size)} · ${fmtVal.toUpperCase()}` };
+    },
+  }, signal);
+}
+
+async function folderPdf(quality, signal) {
+  try { await loadScript(JSPDF_URL); }
+  catch { alert('Failed to load PDF library. Check your connection and try again.'); return; }
+  const jsPDF = window.jspdf?.jsPDF;
+  if (!jsPDF) { alert('PDF library did not load correctly.'); return; }
+  const newDoc = () => new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+
+  if (!document.getElementById('cvtPdfCombine').checked) {
+    return runFolder({
+      title: 'Converting to PDF',
+      outName: item => `${baseOf(item.name)}.pdf`,
+      work: async ({ file, img }) => {
+        const doc = newDoc();
+        addImageToPdfPage(doc, img, quality);
+        const blob = doc.output('blob');
+        return { blob, info: `${sizeChange(file.size, blob.size)} · PDF` };
+      },
+    }, signal);
+  }
+
+  const doc = newDoc();
+  let pages = 0;
+  return runFolder({
+    title: 'Combining into one PDF',
+    outName: item => item.name,
+    resume: false,
+    work: async ({ img }) => {
+      if (pages++) doc.addPage();
+      addImageToPdfPage(doc, img, quality);
+      return { info: `Page ${pages}` };
+    },
+    finish: async stopped => {
+      if (stopped || !pages) return 'Stopped — the combined PDF was not saved.';
+      const blob = doc.output('blob');
+      const name = await freeOutName('', 'converted_images.pdf');
+      await writeOut('', name, blob);
+      return `📄 Saved as <b>${esc(name)}</b> (${pages} pages · ${fmt(blob.size)})`;
+    },
+  }, signal);
+}
+
+async function folderCompress(signal) {
+  const tb = targetBytes();
+  if (!tb) { alert('Enter a target size first.'); return; }
+  const fmtVal   = document.getElementById('fmtCompress').value;
+  const strategy = document.getElementById('strategyCompress').value;
+  return runFolder({
+    title: `Compressing to ~${fmt(tb)} each`,
+    outName: item => `${baseOf(item.name)}.${extOf(fmtVal)}`,
+    needImg: false,
+    lanes: codecPool.size,
+    work: async ({ file }) => {
+      const r = await runCodec('compress', { file, fmt: fmtVal, target: tb, strategy });
+      const warn = r.missed ? ' · <span style="color:var(--yellow)">⚠ above target</span>' : '';
+      return { blob: r.blob, info: `${sizeChange(file.size, r.blob.size)} · ${r.width}×${r.height} · ${fmtVal.toUpperCase()}${warn}` };
+    },
+  }, signal);
+}
+
+async function folderUpscale(signal) {
+  const fmtVal = document.getElementById('fmtUpscale').value;
+  const sf = document.getElementById('scaleFactor').value;
+  const label = sf === 'custom' ? `${parseInt(document.getElementById('customWidth').value) || 0}w` : `${sf}x`;
+  if (label === '0w') { alert('Enter a target width first.'); return; }
+  let aiReady = true;
+  return runFolder({
+    title: 'Upscaling',
+    outName: item => `${baseOf(item.name)}_upscaled_${label}.${extOf(fmtVal)}`,
+    prepare: async () => {
+      progress(1, 'Loading Real-ESRGAN AI…');
+      try { await untilAborted(ensureUpscaler(), signal); }
+      catch (err) { if (isAbort(err)) return false; aiReady = false; }
+      return true;
+    },
+    work: async ({ img }, report, signal) => {
+      const { w, h } = upscaleTarget(img);
+      const blob = await upscaleOne(img, w, h, fmtVal, aiReady, (d, t) => report(d / t, `Upscaling — tile ${d}/${t}`), signal);
+      return { blob, info: `${img.naturalWidth}×${img.naturalHeight} → ${w}×${h} · ${fmt(blob.size)}` };
+    },
+  }, signal);
+}
+
+async function folderRemoveBG(signal) {
+  const key       = document.getElementById('bgModel').value;
+  const fmtVal    = document.getElementById('bgFmt').value;
+  const fillColor = document.getElementById('bgFill').value;
+  let run;
+  return runFolder({
+    title: 'Removing Background',
+    outName: item => `${baseOf(item.name)}_no_bg.${fmtVal === 'svg' ? 'svg' : extOf(fmtVal)}`,
+    prepare: async () => {
+      progress(1, `Loading ${BG_MODELS[key].label} model…`);
+      try { run = await untilAborted(ensureBGEngine(key), signal); return true; }
+      catch (err) {
+        if (!isAbort(err)) alert('Could not load the background removal model. Check your connection and try again.');
+        return false;
+      }
+    },
+    work: async ({ file, img }, report, signal) => {
+      report(0, 'Removing background');
+      const { blob, ext } = await removeBGOne(run, file, img, fmtVal, fillColor, signal);
+      return { blob, info: `${img.naturalWidth}×${img.naturalHeight} · ${fmt(blob.size)} · ${ext.toUpperCase()}` };
+    },
+  }, signal);
+}
+
+async function folderProcedure(k, signal) {
+  const proc = PROCEDURES[k];
+  let engines = null;
+  return runFolder({
+    title: proc.name,
+    outName: item => `${baseOf(item.name)}_${k}.${extOf(proc.fmt)}`,
+    prepare: async () => !!(engines = await loadSquareEngines(signal)),
+    work: ({ file, img }, report, signal) => squareOne(k, engines, file, img, report, signal),
+  }, signal);
+}
+
+window.addEventListener('beforeunload', e => {
+  if (job) { e.preventDefault(); e.returnValue = ''; }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════
+updateConvertFmtUI();
+localStorage.removeItem('cdKey');
+localStorage.removeItem('repKey');
+warmCodecs();
+
+// ═══════════════════════════════════════════════════════════════
+// ACCOUNT — sign-in state, header, tab permissions
+// The login shell (shell/index.html) signs in and writes this page into the document;
+// both share the session stored under 'pupik-tools-auth'.
+// ═══════════════════════════════════════════════════════════════
+const SB_URL = 'https://fgxtaxdjqgmqrwgvjpwn.supabase.co';         // supabase/project.json "url"
+const SB_KEY = 'sb_publishable_i2Tp40p0Q5ugF9WE9tp90A_sAkBrdVq';   // supabase/project.json "publishableKey"
+const TOOL_TABS = ['convert', 'compress', 'upscale', 'removebg', 'procedures'];
+let sbClient = null;
+let me = null;
+
+function allowedTabs(p) {
+  if (!p) return [...TOOL_TABS];
+  return p.is_super_admin ? [...TOOL_TABS, 'admin'] : TOOL_TABS.filter(t => p.tabs.includes(t));
+}
+
+function applyTabs(p) {
+  const allowed = allowedTabs(p);
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('hidden', !allowed.includes(b.dataset.tab)));
+  document.querySelector('.tab-bar').classList.remove('pending');
+  if (!allowed.length) { document.body.classList.add('no-tabs'); show('noTabsMsg'); return; }
+  document.querySelector(`.tab-btn[data-tab="${allowed[0]}"]`).click();
+}
+
+function backToLogin() { location.reload(); }   // the shell decides what to show
+
+async function clearSession() {
+  try { await sbClient?.auth.signOut({ scope: 'local' }); } catch {}
+  localStorage.removeItem('pupik-tools-auth');
+}
+
+async function initAccount() {
+  if (!window.supabase) return CHANNEL === 'local' ? applyTabs(null) : backToLogin();
+  sbClient = supabase.createClient(SB_URL, SB_KEY, { auth: { storageKey: 'pupik-tools-auth' } });
+  const { data: { session } } = await sbClient.auth.getSession();
+  if (!session) return CHANNEL === 'local' ? applyTabs(null) : backToLogin();
+  const { data: p, error } = await sbClient.from('profiles').select('*').maybeSingle();
+  if (error || !p || !p.active) {
+    if (!error) await clearSession();
+    return backToLogin();
+  }
+  me = p;
+  document.getElementById('whoName').textContent = p.full_name || p.username;
+  document.getElementById('whoCompany').textContent = p.company ? `· ${p.company}` : '';
+  show('whoBox');
+  applyTabs(p);
+  if (p.is_super_admin) initAdmin();
+  sbClient.auth.onAuthStateChange(event => { if (event === 'SIGNED_OUT') backToLogin(); });
+}
+
+document.getElementById('btnSignOut').addEventListener('click', async () => {
+  if (job && !confirm('A job is running. Sign out anyway?')) return;
+  try { await sbClient?.auth.signOut(); } catch {}
+  await clearSession();
+  backToLogin();
+});
+
+document.getElementById('btnChangePw').addEventListener('click', () => {
+  document.getElementById('formPw').reset();
+  document.getElementById('pwErr').textContent = '';
+  document.getElementById('dlgPw').showModal();
+});
+document.getElementById('pwCancel').addEventListener('click', () => document.getElementById('dlgPw').close());
+document.getElementById('formPw').addEventListener('submit', async e => {
+  e.preventDefault();
+  const err = document.getElementById('pwErr');
+  const next = document.getElementById('pwNew').value;
+  if (next !== document.getElementById('pwNew2').value) { err.textContent = 'The two new passwords do not match.'; return; }
+  setDis('pwSave', true);
+  try {
+    const { error } = await sbClient.functions.invoke('account', {
+      body: { action: 'change_password', current: document.getElementById('pwCur').value, next },
+    });
+    if (error) { err.textContent = await fnError(error); return; }
+    document.getElementById('dlgPw').close();
+    alert('Password changed.');
+  } finally { setDis('pwSave', false); }
+});
+
+async function fnError(error) {
+  try { return (await error.context.json()).error || 'Request failed.'; }
+  catch { return "Can't reach the server. Try again shortly."; }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ADMIN — super-admin user management (server enforces every rule)
+// All user-supplied text goes through textContent, never innerHTML.
+// ═══════════════════════════════════════════════════════════════
+const ALL_TABS = { convert:'Convert', compress:'Compress', upscale:'Upscale', removebg:'Remove BG', procedures:'Procedures', barcode:'Barcode' };
+const PW_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';   // same as rules.js
+let adminUsers = [];
+let editing = null;      // profile being edited, or null when adding
+let resetting = null;
+
+function genPassword(len = 14) {
+  const bytes = crypto.getRandomValues(new Uint8Array(len));
+  return Array.from(bytes, b => PW_ALPHABET[b % PW_ALPHABET.length]).join('');
+}
+
+async function adminCall(action, payload = {}) {
+  const { data, error } = await sbClient.functions.invoke('admin-users', { body: { action, ...payload } });
+  if (error) throw new Error(await fnError(error));
+  return data;
+}
+
+function admMsg(text) { document.getElementById('admMsg').textContent = text; }
+
+// `note` is shown after the list loads (e.g. a new user's starting password), so the reload can't wipe it.
+async function loadUsers(note = '') {
+  if (!me?.is_super_admin) return;
+  admMsg('Loading users…');
+  try {
+    adminUsers = (await adminCall('list')).users;
+    admMsg('');
+    renderCompanies();
+    renderUsers();
+    if (note) admMsg(note);
+  } catch (e) { admMsg(e.message); }
+}
+
+function renderCompanies() {
+  const companies = [...new Set(adminUsers.map(u => u.company).filter(Boolean))].sort();
+  const sel = document.getElementById('admCompany');
+  const keep = sel.value;
+  sel.replaceChildren(new Option('All companies', ''), ...companies.map(c => new Option(c, c)));
+  sel.value = companies.includes(keep) ? keep : '';
+  document.getElementById('admCompanies').replaceChildren(...companies.map(c => new Option(c)));
+}
+
+function mkEl(tag, props = {}, ...children) {
+  const node = Object.assign(document.createElement(tag), props);
+  node.append(...children);
+  return node;
+}
+
+function renderUsers() {
+  const q = document.getElementById('admSearch').value.trim().toLowerCase();
+  const company = document.getElementById('admCompany').value;
+  const rows = adminUsers
+    .filter(u => !company || u.company === company)
+    .filter(u => !q || [u.username, u.full_name, u.company].some(s => (s || '').toLowerCase().includes(q)))
+    .map(userRow);
+  document.getElementById('admRows').replaceChildren(...rows);
+  if (!rows.length) admMsg(adminUsers.length ? 'No users match.' : 'No users yet.');
+  else if (document.getElementById('admMsg').textContent === 'No users match.') admMsg('');
+}
+
+function userRow(u) {
+  const who = mkEl('td', {}, mkEl('b', { textContent: u.username }));
+  if (u.is_super_admin) who.append(mkEl('span', { className: 'adm-badge', textContent: 'SUPER' }));
+  if (u.full_name) who.append(mkEl('div', { textContent: u.full_name, style: 'color:var(--text2)' }));
+  const tabs = u.is_super_admin ? 'All' : (u.tabs.map(t => ALL_TABS[t]).join(', ') || '—');
+  const last = u.last_sign_in_at ? new Date(u.last_sign_in_at).toLocaleString() : 'Never';
+  const actions = mkEl('td', {}, mkEl('div', { className: 'adm-actions' },
+    actionBtn('Edit', () => openUser(u)),
+    u.is_super_admin ? '' : actionBtn(u.active ? 'Revoke' : 'Restore', () => setActive(u, !u.active)),
+    actionBtn('Reset password', () => openReset(u)),
+    u.is_super_admin ? '' : actionBtn('Delete', () => deleteUser(u)),
+  ));
+  return mkEl('tr', { className: u.active ? '' : 'revoked' },
+    who,
+    mkEl('td', { textContent: u.company || '—' }),
+    mkEl('td', {}, mkEl('span', { className: `adm-status ${u.active ? 'on' : 'off'}`, textContent: u.active ? 'Active' : 'Revoked' })),
+    mkEl('td', { textContent: tabs }),
+    mkEl('td', { textContent: last }),
+    actions);
+}
+
+function actionBtn(label, onClick) {
+  const b = mkEl('button', { className: 'link-btn', type: 'button', textContent: label });
+  b.addEventListener('click', onClick);
+  return b;
+}
+
+function openUser(u) {
+  editing = u ?? null;
+  document.getElementById('formUser').reset();
+  document.getElementById('uErr').textContent = '';
+  document.getElementById('userTitle').textContent = u ? `Edit ${u.username}` : 'Add user';
+  const name = document.getElementById('uUsername');
+  name.value = u?.username ?? '';
+  name.disabled = !!u;
+  document.getElementById('uName').value = u?.full_name ?? '';
+  document.getElementById('uCompany').value = u?.company ?? '';
+  document.getElementById('uPwRow').classList.toggle('hidden', !!u);
+  document.getElementById('uPassword').required = !u;
+  document.getElementById('uPassword').value = u ? '' : genPassword();
+  const sup = document.getElementById('uSuper');
+  sup.checked = !!u?.is_super_admin;
+  sup.disabled = u?.id === me.id;   // cannot demote yourself
+  document.getElementById('uTabs').replaceChildren(...Object.entries(ALL_TABS).map(([key, label]) => {
+    const box = mkEl('input', { type: 'checkbox', value: key, checked: u ? u.tabs.includes(key) : key !== 'barcode' });
+    return mkEl('label', {}, box, label);
+  }));
+  document.getElementById('dlgUser').showModal();
+}
+
+document.getElementById('formUser').addEventListener('submit', async e => {
+  e.preventDefault();
+  const tabs = [...document.querySelectorAll('#uTabs input:checked')].map(i => i.value);
+  const fields = {
+    full_name: document.getElementById('uName').value,
+    company: document.getElementById('uCompany').value,
+    tabs,
+    is_super_admin: document.getElementById('uSuper').checked,
+  };
+  setDis('uSave', true);
+  try {
+    let note;
+    if (editing) {
+      await adminCall('update', { id: editing.id, patch: fields });
+      note = `Saved ${editing.username}.`;
+    } else {
+      const username = document.getElementById('uUsername').value.trim().toLowerCase();
+      const password = document.getElementById('uPassword').value;
+      await adminCall('create', { username, password, ...fields });
+      note = `Created ${username}. Starting password: ${password} — send it to them; they must change it at first sign-in.`;
+    }
+    document.getElementById('dlgUser').close();
+    await loadUsers(note);
+  } catch (err) {
+    document.getElementById('uErr').textContent = err.message;
+  } finally { setDis('uSave', false); }
+});
+
+async function setActive(u, active) {
+  if (!active && !confirm(`Revoke ${u.username}? They are signed out everywhere and can no longer use the site.`)) return;
+  try {
+    await adminCall(active ? 'restore' : 'revoke', { id: u.id });
+    await loadUsers(`${u.username} ${active ? 'restored' : 'revoked'}.`);
+  } catch (err) { admMsg(err.message); }
+}
+
+async function deleteUser(u) {
+  if (!confirm(`Permanently delete ${u.username}? This cannot be undone. (Revoke keeps the account so it can be restored.)`)) return;
+  try {
+    await adminCall('delete', { id: u.id });
+    await loadUsers(`${u.username} deleted.`);
+  } catch (err) { admMsg(err.message); }
+}
+
+function openReset(u) {
+  resetting = u;
+  document.getElementById('rUser').textContent = u.username;
+  document.getElementById('rPassword').value = genPassword();
+  document.getElementById('rErr').textContent = '';
+  document.getElementById('dlgReset').showModal();
+}
+
+document.getElementById('formReset').addEventListener('submit', async e => {
+  e.preventDefault();
+  const password = document.getElementById('rPassword').value;
+  setDis('rSave', true);
+  try {
+    await adminCall('reset_password', { id: resetting.id, password });
+    document.getElementById('dlgReset').close();
+    if (resetting.id === me.id) { await clearSession(); backToLogin(); return; }
+    await loadUsers(`Password for ${resetting.username} reset to: ${password} — send it to them.`);
+  } catch (err) {
+    document.getElementById('rErr').textContent = err.message;
+  } finally { setDis('rSave', false); }
+});
+
+function initAdmin() {
+  document.querySelector('.tab-btn[data-tab="admin"]').classList.remove('hidden');
+  document.getElementById('admAdd').addEventListener('click', () => openUser(null));
+  document.getElementById('admSearch').addEventListener('input', renderUsers);
+  document.getElementById('admCompany').addEventListener('change', renderUsers);
+  document.getElementById('uGen').addEventListener('click', () => { document.getElementById('uPassword').value = genPassword(); });
+  document.getElementById('rGen').addEventListener('click', () => { document.getElementById('rPassword').value = genPassword(); });
+  document.getElementById('uCancel').addEventListener('click', () => document.getElementById('dlgUser').close());
+  document.getElementById('rCancel').addEventListener('click', () => document.getElementById('dlgReset').close());
+}
+
+initAccount().catch(() => (CHANNEL === 'local' ? applyTabs(null) : backToLogin()));
+</script>
+</body>
+</html>
