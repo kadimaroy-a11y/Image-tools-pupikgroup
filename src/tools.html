@@ -250,7 +250,7 @@
       border-radius:8px;color:var(--text);padding:9px;font-size:13px;}
     dialog.modal .row{display:flex;gap:8px;justify-content:flex-end;margin-top:6px;}
     dialog.modal .err{color:var(--red);font-size:12px;min-height:1.1em;}
-    @media(max-width:600px){ header{flex-wrap:wrap;} header .who{width:100%;} }
+    @media(max-width:600px){ header{flex-wrap:wrap;} header .who{width:100%;flex-wrap:wrap;white-space:normal;} }
 
     /* ── Admin ── */
     .adm-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;}
@@ -267,6 +267,34 @@
     .adm-actions{display:flex;flex-wrap:wrap;gap:4px;}
     .adm-tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
     .adm-tabs label{flex-direction:row !important;align-items:center;gap:6px;color:var(--text) !important;}
+    /* ── Barcode ── */
+    body.barcode-mode main > :not(#panelBarcode){display:none !important;}
+    .bc-grid{display:grid;grid-template-columns:1.3fr 1fr;gap:16px;}
+    .bc-field{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text2);margin-bottom:10px;}
+    .bc-field textarea,.bc-field input[type=number],.bc-field input[type=text]{background:var(--sur2);border:1px solid var(--border);
+      border-radius:8px;color:var(--text);padding:9px;font:13px/1.5 Consolas,monospace;}
+    .bc-field textarea{resize:vertical;min-height:140px;}
+    .bc-field input[type=number]{width:90px;}
+    .bc-radios{display:flex;flex-wrap:wrap;gap:12px;align-items:center;color:var(--text);}
+    .bc-radios label{display:flex;gap:5px;align-items:center;cursor:pointer;}
+    .bc-radios input[type=text]{width:110px;}
+    .bc-hint{font-size:11px;color:var(--text2);}
+    .bc-prog{display:flex;align-items:center;gap:10px;margin-top:12px;font-size:12px;color:var(--text2);}
+    .bc-bar{flex:1;height:6px;background:var(--sur3);border-radius:3px;overflow:hidden;}
+    .bc-bar>div{height:100%;width:0;background:var(--accent);transition:width .2s;}
+    .bc-slots{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;}
+    .bc-slot{background:var(--sur2);border:1px solid var(--border);border-radius:10px;padding:8px;display:flex;flex-direction:column;gap:6px;}
+    .bc-thumb{height:160px;display:grid;place-items:center;background:#fff;border-radius:6px;color:#666;font-size:12px;text-align:center;}
+    .bc-thumb canvas{max-width:100%;max-height:160px;}
+    .bc-size{font-size:11px;color:var(--text2);min-height:1.3em;}
+    .bc-slot-row{display:flex;justify-content:space-between;align-items:center;font-size:12px;}
+    .bc-slot-row label{display:flex;gap:5px;align-items:center;}
+    .bc-log{list-style:none;max-height:260px;overflow:auto;font:12px/1.6 Consolas,monospace;}
+    .bc-log li.bc-saved b{color:var(--green);} .bc-log li.bc-error b{color:var(--red);}
+    .bc-log li.bc-skipped b,.bc-log li.bc-no-image b{color:var(--yellow);}
+    #panelBarcode .btn-row{flex-wrap:wrap;}
+    #panelBarcode .btn-row>*{flex:1 1 140px;}
+    @media(max-width:700px){ .bc-grid{grid-template-columns:1fr;} }
     .adm-bar .btn-main,dialog.modal .btn-main{width:auto;padding:9px 18px;font-size:13px;}
     .adm-msg{font-size:12px;color:var(--text2);min-height:1.2em;word-break:break-word;}
   </style>
@@ -296,6 +324,7 @@
   <button class="tab-btn" data-tab="upscale"><span class="ticon">🔍</span> Upscale</button>
   <button class="tab-btn" data-tab="removebg"><span class="ticon">✂️</span> Remove BG</button>
   <button class="tab-btn" data-tab="procedures"><span class="ticon">⚡</span> Procedures</button>
+  <button class="tab-btn" data-tab="barcode"><span class="ticon">🏷️</span> Barcode</button>
   <button class="tab-btn hidden" data-tab="admin"><span class="ticon">👥</span> Admin</button>
 </div>
 <div class="notice hidden" id="noTabsMsg">No tools are enabled for your account. Contact your administrator.</div>
@@ -622,6 +651,64 @@
     </div>
   </div>
 
+  <!-- ═══ BARCODE ═══ -->
+  <div id="panelBarcode" class="panel hidden">
+    <div class="card">
+      <div class="card-title">Barcode Image Downloader</div>
+      <div class="bc-grid">
+        <label class="bc-field">Barcodes — one per line
+          <textarea id="bcInput" rows="7" spellcheck="false" placeholder="889698505634&#10;4005555042822"></textarea>
+        </label>
+        <div class="bc-side">
+          <label class="bc-field">Images per barcode
+            <input type="number" id="bcQty" min="1" max="20" value="4">
+          </label>
+          <div class="bc-field">File naming
+            <div class="bc-radios">
+              <label><input type="radio" name="bcNaming" value="barcode" checked> Barcode</label>
+              <label><input type="radio" name="bcNaming" value="initials"> Initials</label>
+              <input type="text" id="bcInitials" class="hidden" maxlength="20" placeholder="e.g. FNK">
+            </div>
+            <span class="bc-hint hidden" id="bcInitialsHint">Initials + digits 7–11 of the barcode, e.g. FNK-50428.jpg</span>
+          </div>
+          <div class="bc-field">Save to
+            <div class="bc-radios" id="bcFolderRow">
+              <label><input type="radio" name="bcOut" id="bcOutFolder" value="folder" checked> A folder</label>
+              <label><input type="radio" name="bcOut" id="bcOutZip" value="zip"> A ZIP download</label>
+            </div>
+            <div class="bc-radios" id="bcFolderPickRow">
+              <button type="button" class="btn-sec btn-small" id="bcPickFolder">📁 Choose output folder</button>
+              <span class="bc-hint" id="bcFolderName">No folder chosen</span>
+            </div>
+            <span class="bc-hint hidden" id="bcZipNote">This browser can't save into a folder — images are collected into a ZIP.</span>
+          </div>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn-main" id="bcStart">▶ Start (preview)</button>
+        <button class="btn-main" id="bcAll">⚡ Download all</button>
+        <button class="btn-sec" id="bcCancel" disabled>✕ Cancel all</button>
+      </div>
+      <div class="bc-prog"><div class="bc-bar"><div id="bcBarFill"></div></div><span id="bcProgress"></span><span id="bcUsage"></span></div>
+      <div class="adm-msg" id="bcMsg" role="status"></div>
+    </div>
+    <div class="card hidden" id="bcPreviewCard">
+      <div class="card-title" id="bcCurrent"></div>
+      <div class="bc-slots" id="bcSlots"></div>
+      <div class="btn-row">
+        <button class="btn-main" id="bcSaveSel" disabled>💾 Save selected</button>
+        <button class="btn-sec" id="bcSkip">⏭ Skip</button>
+      </div>
+    </div>
+    <div class="card hidden" id="bcZipCard">
+      <button class="btn-dl" id="bcZipBtn">📥 Download ZIP</button>
+    </div>
+    <div class="card">
+      <div class="card-title">Log</div>
+      <ol class="bc-log" id="bcLog"></ol>
+    </div>
+  </div>
+
   <!-- ═══ ADMIN (super-admins only) ═══ -->
   <div id="panelAdmin" class="panel hidden">
     <div class="card">
@@ -718,7 +805,7 @@
 // VERSION — APP_BUILD is stamped by deploy.ps1 on every publish
 // ═══════════════════════════════════════════════════════════════
 const APP_VERSION = '2.2';
-const APP_BUILD = '2026-10-14 22:43';
+const APP_BUILD = '2026-10-15 00:03';
 const CHANNEL = (() => {
   const local = APP_BUILD.includes('BUILD');
   const host = location.hostname;
@@ -780,12 +867,13 @@ const ZIP_NAMES = {
 // ═══════════════════════════════════════════════════════════════
 // TABS
 // ═══════════════════════════════════════════════════════════════
-const TAB_PANEL = { convert:'Convert', compress:'Compress', upscale:'Upscale', removebg:'RemoveBG', procedures:'Procedures', admin:'Admin' };
+const TAB_PANEL = { convert:'Convert', compress:'Compress', upscale:'Upscale', removebg:'RemoveBG', procedures:'Procedures', barcode:'Barcode', admin:'Admin' };
 
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     activeTab = btn.dataset.tab;
     document.body.classList.toggle('admin-mode', activeTab === 'admin');
+    document.body.classList.toggle('barcode-mode', activeTab === 'barcode');
     if (activeTab === 'admin') loadUsers();
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn));
     document.querySelectorAll('.panel').forEach(p => p.classList.add('hidden'));
@@ -915,7 +1003,7 @@ window.clearFiles = () => {
 };
 
 function refreshButtons() {
-  if (activeTab === 'admin') return;
+  if (activeTab === 'admin' || activeTab === 'barcode') return;
   const has = (folder.on ? folderReady() : files.length > 0) && !job;
   setDis('btnConvert',  !has);
   setDis('btnCompress', !has);
@@ -3135,7 +3223,7 @@ warmCodecs();
 // ═══════════════════════════════════════════════════════════════
 const SB_URL = 'https://fgxtaxdjqgmqrwgvjpwn.supabase.co';         // supabase/project.json "url"
 const SB_KEY = 'sb_publishable_i2Tp40p0Q5ugF9WE9tp90A_sAkBrdVq';   // supabase/project.json "publishableKey"
-const TOOL_TABS = ['convert', 'compress', 'upscale', 'removebg', 'procedures'];
+const TOOL_TABS = ['convert', 'compress', 'upscale', 'removebg', 'procedures', 'barcode'];
 let sbClient = null;
 let me = null;
 
@@ -3401,6 +3489,413 @@ function initAdmin() {
   document.getElementById('uCancel').addEventListener('click', () => document.getElementById('dlgUser').close());
   document.getElementById('rCancel').addEventListener('click', () => document.getElementById('dlgReset').close());
 }
+
+// ═══════════════════════════════════════════════════════════════
+// BARCODE — search via the barcode-* Edge Functions, save JPEGs to a folder or a ZIP.
+// Replaces the Barcode Image Downloader desktop app; behaviour mirrors it.
+// ═══════════════════════════════════════════════════════════════
+const BC_CONCURRENCY = 10;          // Download all: barcodes in flight per user
+const BC_AUTO_COUNT = 4;            // candidates tried per barcode in Download all (like the exe)
+const BC_PREFS = 'barcodePrefs.v1';
+const BC_FOLDER_OK = 'showDirectoryPicker' in window;
+const BC_ILLEGAL = /[\\/:*?"<>|\x00-\x1f]/g;
+const bc = { run: 0, running: false, stopNew: false, capHit: false, mode: '', list: [], idx: 0, done: 0,
+  qty: 4, naming: 'barcode', initials: '', output: 'folder', folder: null, zip: new Map(), zipSaved: 0,
+  current: null, prefetch: null };
+const $bc = id => document.getElementById(id);
+
+// Copies of sanitizeBarcode/sanitizeFilenamePart/filenameBase in supabase/functions/_shared/barcode.js (unit-tested there).
+function bcSanitizeBarcode(s) { const r = String(s ?? '').trim().replace(BC_ILLEGAL, '_'); return r === '.' || r === '..' ? `_${r}` : r; }
+function bcSanitizePart(s) { return String(s ?? '').trim().replace(BC_ILLEGAL, '_').replace(/^[ .]+|[ .]+$/g, ''); }
+function bcFilenameBase(barcode, mode, initials) {
+  const code = String(barcode ?? '').trim();
+  if (mode !== 'initials') return bcSanitizeBarcode(code);
+  const ini = bcSanitizePart(initials) || 'IMG';
+  let digits = code.length > 6 ? code.slice(6, 11) : code;
+  digits = digits.replace(/^0+/, '') || digits;
+  return bcSanitizePart(`${ini}-${digits}`) || 'IMG';
+}
+
+class BcError extends Error { constructor(status, message) { super(message); this.status = status; } }
+
+async function bcCall(fn, body, binary = false) {
+  const session = sbClient && (await sbClient.auth.getSession()).data.session;
+  if (!session) throw new BcError(401, 'Sign in to use Barcode.');
+  let res;
+  try {
+    res = await fetch(`${SB_URL}/functions/v1/${fn}`, {
+      method: 'POST',
+      headers: { apikey: SB_KEY, Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch { throw new BcError(0, "Can't reach the server"); }
+  if (!res.ok) {
+    let msg = `Request failed (${res.status})`;
+    try { msg = (await res.json()).error || msg; } catch {}
+    throw new BcError(res.status, msg);
+  }
+  return binary ? res.blob() : res.json();
+}
+
+function bcMsg(text) { $bc('bcMsg').textContent = text; }
+function bcLog(kind, text) {
+  $bc('bcLog').prepend(mkEl('li', { className: `bc-${kind.toLowerCase().replace(/\s+/g, '-')}` }, mkEl('b', { textContent: `[${kind}] ` }), text));
+}
+function bcProgress() {
+  const total = bc.list.length, done = bc.mode === 'preview' ? bc.idx : bc.done;
+  $bc('bcProgress').textContent = total ? `${Math.min(done, total)} / ${total}` : '';
+  $bc('bcBarFill').style.width = total ? `${(100 * Math.min(done, total)) / total}%` : '0';
+}
+function bcShowUsage(used, cap) { $bc('bcUsage').textContent = `Today: ${used.toLocaleString()} / ${cap.toLocaleString()}`; }
+const bcSize = n => n < 1024 * 1024 ? `${Math.round(n / 1024)} KB` : `${(n / 1048576).toFixed(1)} MB`;
+
+function bcControls(running) {
+  const block = running || bc.capHit;
+  setDis('bcStart', block); setDis('bcAll', block); setDis('bcCancel', !running);
+  ['bcInput', 'bcQty', 'bcInitials', 'bcPickFolder'].forEach(id => setDis(id, running));
+  document.querySelectorAll('input[name=bcNaming], input[name=bcOut]').forEach(r => { r.disabled = running || (r.name === 'bcOut' && !BC_FOLDER_OK); });
+}
+
+function bcSyncOutputUi() {
+  bc.output = BC_FOLDER_OK && $bc('bcOutFolder').checked ? 'folder' : 'zip';
+  $bc('bcFolderPickRow').classList.toggle('hidden', bc.output !== 'folder');
+}
+
+/** Handles errors that end the run. Returns true when handled. */
+function bcFatal(err) {
+  if (err.status === 401) {
+    bcStop(); bcMsg(err.message);
+    if (me) backToLogin();
+    return true;
+  }
+  if (err.status === 429) {
+    bc.capHit = true; bc.stopNew = true; bcMsg(err.message);
+    if (bc.mode === 'preview') bcStop();
+    return true;
+  }
+  if (err.status === 403 && /isn't enabled/.test(err.message)) { bcStop(); bcMsg(err.message); return true; }
+  return false;
+}
+
+async function bcBegin(mode) {
+  if (bc.running || bc.capHit) return false;
+  const list = $bc('bcInput').value.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  if (!list.length) { bcMsg('Enter at least one barcode.'); return false; }
+  bcSyncOutputUi();
+  if (bc.output === 'folder') {
+    if (!bc.folder) { bcMsg('Choose an output folder first.'); return false; }
+    if (!(await ensurePermission(bc.folder, 'readwrite'))) { bcMsg('Permission to write to the folder was refused.'); return false; }
+  }
+  bc.naming = document.querySelector('input[name=bcNaming]:checked').value;
+  bc.initials = $bc('bcInitials').value;
+  bc.qty = Math.min(Math.max(parseInt($bc('bcQty').value, 10) || 4, 1), 20);
+  $bc('bcQty').value = bc.qty;
+  bcSavePrefs();
+  Object.assign(bc, { list, idx: 0, done: 0, mode, running: true, stopNew: false, prefetch: null, current: null });
+  bc.run++;
+  $bc('bcLog').replaceChildren();
+  bcMsg('');
+  bcControls(true);
+  bcProgress();
+  return true;
+}
+
+function bcStop() {
+  bc.run++;
+  bc.running = false;
+  bc.prefetch = null;
+  hide('bcPreviewCard');
+  bcControls(false);
+}
+
+function bcFinish() {
+  const saved = $bc('bcLog').querySelectorAll('li.bc-saved').length;
+  if (bc.mode === 'preview') bc.idx = bc.list.length; else bc.done = bc.list.length;
+  bcProgress();
+  bcStop();
+  bcMsg(`Done — ${saved} image${saved === 1 ? '' : 's'} saved.` + (bc.output === 'zip' && bc.zip.size ? ' Download the ZIP below.' : ''));
+}
+
+// ── Images: fetch through barcode-image, decode, convert ──
+async function bcLoad(c) {
+  const blob = await bcCall('barcode-image', { url: c.url, ticket: c.ticket }, true);
+  const bmp = await createImageBitmap(blob);   // throws for undecodable data → treated as a failed candidate
+  return { blob, bmp, w: bmp.width, h: bmp.height, size: blob.size };
+}
+
+async function bcToJpeg(bmp) {
+  const c = document.createElement('canvas');
+  c.width = bmp.width; c.height = bmp.height;
+  const g = c.getContext('2d');
+  g.fillStyle = '#fff';                         // transparent areas become white, not black
+  g.fillRect(0, 0, c.width, c.height);
+  g.drawImage(bmp, 0, 0);
+  try { return await encodeCanvas(c, 'jpeg', 0.90); }
+  finally { c.width = c.height = 0; }
+}
+
+// ── Output: folder or ZIP ──
+async function bcExists(name) {
+  try { await bc.folder.getFileHandle(name); return true; } catch { return false; }
+}
+async function bcWrite(name, blob) {
+  if (bc.output === 'folder') {
+    const fh = await bc.folder.getFileHandle(name, { create: true });
+    const w = await fh.createWritable();
+    try { await w.write(blob); await w.close(); }
+    catch (err) { await w.abort().catch(() => {}); throw err; }
+  } else {
+    bc.zip.set(name, blob);
+    bcZipUi();
+  }
+}
+function bcZipUi() {
+  $bc('bcZipCard').classList.toggle('hidden', !bc.zip.size);
+  $bc('bcZipBtn').textContent = `📥 Download ZIP (${bc.zip.size} image${bc.zip.size === 1 ? '' : 's'})`;
+}
+
+// ── Preview & pick ──
+function bcFetch(barcode, qty) {
+  const p = (async () => {
+    const r = await bcCall('barcode-search', { barcode, count: qty });
+    bcShowUsage(r.used, r.cap);
+    return { barcode, candidates: r.candidates, loads: r.candidates.map(c => bcLoad(c).catch(error => ({ error }))) };
+  })();
+  p.catch(() => {});   // the rejection is handled where it's awaited
+  return p;
+}
+
+async function bcShowNext() {
+  const run = bc.run;
+  bcProgress();
+  if (bc.idx >= bc.list.length) return bcFinish();
+  const barcode = bc.list[bc.idx];
+  $bc('bcCurrent').textContent = `Barcode ${bc.idx + 1} of ${bc.list.length}: ${barcode}`;
+  $bc('bcSlots').replaceChildren(mkEl('div', { className: 'bc-hint', textContent: 'Searching…' }));
+  setDis('bcSaveSel', true);
+  show('bcPreviewCard');
+  let item;
+  try {
+    item = await (bc.prefetch?.barcode === barcode ? bc.prefetch.promise : bcFetch(barcode, bc.qty));
+  } catch (err) {
+    if (run !== bc.run || bcFatal(err)) return;
+    bcLog('ERROR', `${barcode} — ${err.message}`);
+    bc.idx++;
+    return bcShowNext();
+  }
+  if (run !== bc.run) return;
+  bc.current = item;
+  const next = bc.list[bc.idx + 1];
+  bc.prefetch = next && !bc.capHit ? { barcode: next, promise: bcFetch(next, bc.qty) } : null;
+  bcRenderSlots(item, run);
+}
+
+function bcRenderSlots(item, run) {
+  if (!item.candidates.length) {
+    $bc('bcSlots').replaceChildren(mkEl('div', { className: 'bc-hint', textContent: 'No images found for this barcode — press Skip.' }));
+    return;
+  }
+  const slots = item.candidates.map((c, i) => {
+    const thumb = mkEl('div', { className: 'bc-thumb', textContent: 'Loading…' });
+    const size = mkEl('div', { className: 'bc-size' });
+    const box = mkEl('input', { type: 'checkbox', disabled: true });
+    const save = mkEl('button', { className: 'btn-sec btn-small', type: 'button', textContent: '💾 Save', disabled: true });
+    box.addEventListener('change', bcSelChanged);
+    save.addEventListener('click', () => bcSave([i]));
+    item.loads[i].then(r => {
+      if (run !== bc.run) return;
+      if (r.error) {
+        if (r.error.status === 403 && /expired/i.test(r.error.message)) {
+          const again = mkEl('button', { className: 'btn-sec btn-small', type: 'button', textContent: '🔄 Search again' });
+          again.addEventListener('click', () => bcResearch(item.barcode));
+          thumb.replaceChildren(mkEl('div', {}, mkEl('div', { textContent: 'Link expired' }), again));
+        } else {
+          thumb.textContent = "Couldn't load";
+        }
+        return;
+      }
+      const cv = document.createElement('canvas');
+      const k = Math.min(1, 160 / Math.max(r.w, r.h));
+      cv.width = Math.max(1, Math.round(r.w * k)); cv.height = Math.max(1, Math.round(r.h * k));
+      cv.getContext('2d').drawImage(r.bmp, 0, 0, cv.width, cv.height);
+      thumb.replaceChildren(cv);
+      size.textContent = `${r.w}×${r.h} · ${bcSize(r.size)} · ${c.source}`;
+      box.disabled = false; save.disabled = false;
+    });
+    return mkEl('div', { className: 'bc-slot' }, thumb, size,
+      mkEl('div', { className: 'bc-slot-row' }, mkEl('label', {}, box, 'Select'), save));
+  });
+  $bc('bcSlots').replaceChildren(...slots);
+  bcSelChanged();
+}
+
+function bcSelChanged() {
+  setDis('bcSaveSel', !$bc('bcSlots').querySelector('input[type=checkbox]:checked'));
+}
+
+async function bcResearch(barcode) {
+  const run = bc.run;
+  $bc('bcSlots').replaceChildren(mkEl('div', { className: 'bc-hint', textContent: 'Searching again…' }));
+  try {
+    const item = await bcFetch(barcode, bc.qty);
+    if (run !== bc.run) return;
+    bc.current = item;
+    bcRenderSlots(item, run);
+  } catch (err) {
+    if (run !== bc.run || bcFatal(err)) return;
+    bcLog('ERROR', `${barcode} — ${err.message}`);
+  }
+}
+
+async function bcSave(indices) {
+  const item = bc.current, run = bc.run;
+  const base = bcFilenameBase(item.barcode, bc.naming, bc.initials);
+  $bc('bcSlots').querySelectorAll('button, input').forEach(el => { el.disabled = true; });
+  setDis('bcSaveSel', true);
+  for (const [n, i] of indices.entries()) {
+    const name = n === 0 ? `${base}.jpg` : `${base}-${n + 1}.jpg`;
+    try {
+      const r = await item.loads[i];
+      if (r.error) throw r.error;
+      await bcWrite(name, await bcToJpeg(r.bmp));
+      bcLog('SAVED', `${item.barcode} — ${name}`);
+    } catch (err) {
+      if (bcFatal(err)) return;
+      bcLog('ERROR', `${item.barcode} — ${name}: ${err.message}`);
+    }
+  }
+  if (run !== bc.run) return;
+  bc.idx++;
+  bcShowNext();
+}
+
+$bc('bcSaveSel').addEventListener('click', () => {
+  const picked = [...$bc('bcSlots').querySelectorAll('.bc-slot')]
+    .map((slot, i) => (slot.querySelector('input[type=checkbox]').checked ? i : -1)).filter(i => i >= 0);
+  if (picked.length) bcSave(picked);
+});
+$bc('bcSkip').addEventListener('click', () => {
+  if (!bc.running || bc.mode !== 'preview' || !bc.current) return;
+  bcLog('SKIPPED', `${bc.current.barcode} — skipped`);
+  bc.idx++;
+  bcShowNext();
+});
+
+// ── Download all ──
+async function bcStartAll() {
+  if (!(await bcBegin('all'))) return;
+  hide('bcPreviewCard');
+  const run = bc.run;
+  const claimed = new Set(), jobs = [];
+  for (const barcode of bc.list) {
+    const name = `${bcFilenameBase(barcode, bc.naming, bc.initials)}.jpg`;
+    if (claimed.has(name.toLowerCase())) {
+      bcLog('SKIPPED', `${barcode} — same filename as an earlier barcode (${name})`);
+      bc.done++;
+      continue;
+    }
+    claimed.add(name.toLowerCase());
+    jobs.push({ barcode, name });
+  }
+  bcMsg(`Downloading — ${Math.min(BC_CONCURRENCY, jobs.length)} barcodes at a time…`);
+  bcProgress();
+  let next = 0;
+  const worker = async () => {
+    while (next < jobs.length && run === bc.run && !bc.stopNew) {
+      await bcAutoOne(jobs[next++], run);
+      if (run !== bc.run) return;
+      bc.done++;
+      bcProgress();
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(BC_CONCURRENCY, jobs.length) }, worker));
+  if (run !== bc.run) return;
+  if (bc.capHit) {
+    const saved = $bc('bcLog').querySelectorAll('li.bc-saved').length;
+    bcStop();
+    bcMsg(`Daily limit reached (2,000 barcodes). It resets at midnight. ${saved} image${saved === 1 ? '' : 's'} saved before the limit.`);
+    return;
+  }
+  bcFinish();
+}
+
+async function bcAutoOne({ barcode, name }, run) {
+  try {
+    if (bc.output === 'folder' && await bcExists(name)) return bcLog('SKIPPED', `${barcode} — file already exists (${name})`);
+    const r = await bcCall('barcode-search', { barcode, count: BC_AUTO_COUNT });
+    bcShowUsage(r.used, r.cap);
+    for (const c of r.candidates) {
+      if (run !== bc.run) return;
+      try {
+        const img = await bcLoad(c);
+        const jpg = await bcToJpeg(img.bmp);
+        img.bmp.close();
+        await bcWrite(name, jpg);
+        return bcLog('SAVED', `${barcode} — ${name}`);
+      } catch (err) {
+        if (err.status === 401 || err.status === 429) throw err;   // fatal; other errors → try the next candidate
+      }
+    }
+    bcLog('NO IMAGE', `${barcode} — no image could be downloaded`);
+  } catch (err) {
+    if (run !== bc.run || bcFatal(err)) return;
+    bcLog('ERROR', `${barcode} — ${err.message}`);
+  }
+}
+
+// ── Controls ──
+$bc('bcStart').addEventListener('click', async () => { if (await bcBegin('preview')) bcShowNext(); });
+$bc('bcAll').addEventListener('click', bcStartAll);
+$bc('bcCancel').addEventListener('click', () => {
+  if (!bc.running) return;
+  const left = bc.list.length - (bc.mode === 'preview' ? bc.idx : bc.done);
+  if (!confirm(`Cancel? ${left} barcode${left === 1 ? '' : 's'} won't be processed. Images already saved are kept.`)) return;
+  bcStop();
+  bcMsg('Cancelled.');
+});
+$bc('bcPickFolder').addEventListener('click', async () => {
+  try {
+    bc.folder = await showDirectoryPicker({ id: 'pupik-barcode', mode: 'readwrite' });
+    $bc('bcFolderName').textContent = `📁 ${bc.folder.name}`;
+  } catch (err) {
+    if (err.name !== 'AbortError') bcMsg(`Could not open that folder: ${err.message}`);
+  }
+});
+document.querySelectorAll('input[name=bcNaming]').forEach(r => r.addEventListener('change', () => {
+  const ini = document.querySelector('input[name=bcNaming]:checked').value === 'initials';
+  $bc('bcInitials').classList.toggle('hidden', !ini);
+  $bc('bcInitialsHint').classList.toggle('hidden', !ini);
+}));
+document.querySelectorAll('input[name=bcOut]').forEach(r => r.addEventListener('change', bcSyncOutputUi));
+$bc('bcZipBtn').addEventListener('click', async () => {
+  if (!window.JSZip) { alert('JSZip not loaded — refresh and try again.'); return; }
+  const zip = new JSZip();
+  for (const [name, blob] of bc.zip) zip.file(name, blob);
+  triggerDownload(URL.createObjectURL(await zip.generateAsync({ type: 'blob' })), 'barcode-images.zip');
+  bc.zipSaved = bc.zip.size;
+});
+window.addEventListener('beforeunload', e => {
+  if (bc.running || bc.zip.size > bc.zipSaved) { e.preventDefault(); e.returnValue = ''; }
+});
+
+function bcSavePrefs() {
+  try {
+    localStorage.setItem(BC_PREFS, JSON.stringify({ qty: bc.qty, naming: bc.naming, initials: bc.initials, output: bc.output }));
+  } catch {}
+}
+(function bcInit() {
+  try {
+    const p = JSON.parse(localStorage.getItem(BC_PREFS) || '{}');
+    if (p.qty) $bc('bcQty').value = p.qty;
+    if (p.initials) $bc('bcInitials').value = p.initials;
+    if (p.naming === 'initials') { document.querySelector('input[name=bcNaming][value=initials]').checked = true; }
+    if (p.output === 'zip') $bc('bcOutZip').checked = true;
+  } catch {}
+  if (!BC_FOLDER_OK) { $bc('bcOutZip').checked = true; hide('bcFolderRow'); show('bcZipNote'); }
+  document.querySelector('input[name=bcNaming]:checked').dispatchEvent(new Event('change'));
+  bcSyncOutputUi();
+  bcControls(false);
+})();
 
 initAccount().catch(() => (CHANNEL === 'local' ? applyTabs(null) : backToLogin()));
 </script>
