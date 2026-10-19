@@ -16,7 +16,9 @@
       --red:#ef4444; --purple:#a855f7;
     }
     *{box-sizing:border-box;margin:0;padding:0;}
-    body{background:var(--bg);color:var(--text);font:14px/1.5 'Segoe UI',sans-serif;min-height:100vh;}
+    html,body{height:100%;}
+    body{background:var(--bg);color:var(--text);font:14px/1.5 'Segoe UI',sans-serif;
+      min-height:100%;display:flex;flex-direction:column;overflow:hidden;}
 
     /* ── Header ── */
     header{background:var(--sur);border-bottom:1px solid var(--border);padding:14px 28px;display:flex;align-items:center;gap:14px;}
@@ -29,16 +31,21 @@
     header .ver-chan.beta{background:var(--yellow);color:#111;}
     header .ver-chan.local{background:var(--purple);color:#fff;}
 
-    /* ── Tabs ── */
-    .tab-bar{background:var(--sur);border-bottom:1px solid var(--border);display:flex;padding:0 20px;gap:0;overflow-x:auto;}
-    .tab-btn{padding:13px 20px;font-size:13px;font-weight:600;background:none;border:none;
-      color:var(--text2);cursor:pointer;border-bottom:3px solid transparent;
-      transition:all .18s;white-space:nowrap;display:flex;align-items:center;gap:6px;}
-    .tab-btn:hover{color:var(--text);}
-    .tab-btn.active{color:var(--accent);border-bottom-color:var(--accent);}
+    /* ── Tabs (left sidebar) ── */
+    .app{flex:1;min-height:0;display:grid;grid-template-columns:220px minmax(0,1fr);align-items:stretch;}
+    .tab-bar{overflow-y:auto;background:var(--sur);border-right:1px solid var(--border);
+      display:flex;flex-direction:column;gap:4px;padding:14px 10px;}
+    .tab-btn{width:100%;padding:10px 12px;font-size:13px;font-weight:600;background:none;
+      border:1px solid transparent;border-radius:8px;color:var(--text2);cursor:pointer;
+      transition:background .15s,color .15s,border-color .15s;white-space:nowrap;
+      display:flex;align-items:center;gap:8px;text-align:left;}
+    .tab-btn .ticon{width:1.3em;text-align:center;flex-shrink:0;}
+    .tab-btn:hover{color:var(--text);background:var(--sur2);}
+    .tab-btn.active{color:var(--accent);background:rgba(79,126,248,.12);border-color:rgba(79,126,248,.35);}
+    .app-main{min-width:0;overflow-y:auto;}
 
     /* ── Layout ── */
-    main{max-width:920px;margin:0 auto;padding:24px 18px;display:flex;flex-direction:column;gap:14px;}
+    main{max-width:960px;margin:0;padding:24px 22px;display:flex;flex-direction:column;gap:14px;}
 
     /* ── Card ── */
     .card{background:var(--sur);border:1px solid var(--border);border-radius:12px;padding:22px;}
@@ -225,10 +232,13 @@
       .proc-layout{grid-template-columns:1fr;}
       .proc-menu{position:static;}
     }
+    @media(max-width:700px){
+      .app{grid-template-columns:1fr;}
+      .tab-bar{flex-direction:row;overflow-x:auto;border-right:none;border-bottom:1px solid var(--border);padding:8px;}
+      .tab-btn{width:auto;}
+    }
     @media(max-width:600px){
       .result-imgs,.two-col{grid-template-columns:1fr;}
-      .tab-btn{padding:12px 13px;font-size:12px;}
-      .tab-btn .ticon{font-size:14px;}
     }
 
     /* ── Account ── */
@@ -318,7 +328,8 @@
   </div>
 </header>
 
-<div class="tab-bar pending">
+<div class="app">
+<nav class="tab-bar pending" aria-label="Tools">
   <button class="tab-btn active" data-tab="convert"><span class="ticon">🔄</span> Convert</button>
   <button class="tab-btn" data-tab="compress"><span class="ticon">📦</span> Compress</button>
   <button class="tab-btn" data-tab="upscale"><span class="ticon">🔍</span> Upscale</button>
@@ -327,7 +338,8 @@
   <button class="tab-btn" data-tab="procedures"><span class="ticon">⚡</span> Procedures</button>
   <button class="tab-btn" data-tab="barcode"><span class="ticon">🏷️</span> Barcode</button>
   <button class="tab-btn hidden" data-tab="admin"><span class="ticon">👥</span> Admin</button>
-</div>
+</nav>
+<div class="app-main">
 <div class="notice hidden" id="noTabsMsg">No tools are enabled for your account. Contact your administrator.</div>
 
 <main>
@@ -765,6 +777,8 @@
   </div>
 
 </main>
+</div>
+</div>
 
 <!-- ═══ ZOOM VIEWER ═══ -->
 <div id="viewer" class="hidden" role="dialog" aria-modal="true">
@@ -841,7 +855,7 @@
 // VERSION — APP_BUILD is stamped by deploy.ps1 on every publish
 // ═══════════════════════════════════════════════════════════════
 const APP_VERSION = '2.3';
-const APP_BUILD = '2026-10-19 10:43';
+const APP_BUILD = '2026-10-19 10:49';
 const CHANNEL = (() => {
   const local = APP_BUILD.includes('BUILD');
   const host = location.hostname;
