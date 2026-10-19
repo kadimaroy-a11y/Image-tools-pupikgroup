@@ -305,7 +305,7 @@
   <div class="hicon">🛠️</div>
   <div>
     <h1>Image Tools</h1>
-    <p>Convert · Compress · Upscale · Remove Background — 100% in your browser, nothing uploaded, free</p>
+    <p>Convert · Compress · Upscale · Center &amp; Crop · Remove Background — 100% in your browser, nothing uploaded, free</p>
   </div>
   <div class="ver">
     <span class="ver-chan hidden" id="appChannel"></span>
@@ -323,6 +323,7 @@
   <button class="tab-btn" data-tab="compress"><span class="ticon">📦</span> Compress</button>
   <button class="tab-btn" data-tab="upscale"><span class="ticon">🔍</span> Upscale</button>
   <button class="tab-btn" data-tab="removebg"><span class="ticon">✂️</span> Remove BG</button>
+  <button class="tab-btn" data-tab="center"><span class="ticon">🎯</span> Center &amp; Crop</button>
   <button class="tab-btn" data-tab="procedures"><span class="ticon">⚡</span> Procedures</button>
   <button class="tab-btn" data-tab="barcode"><span class="ticon">🏷️</span> Barcode</button>
   <button class="tab-btn hidden" data-tab="admin"><span class="ticon">👥</span> Admin</button>
@@ -596,6 +597,41 @@
     </div>
   </div>
 
+  <!-- ═══════════════════════════════ CENTER & CROP ═══════════════════════════════ -->
+  <div id="panelCenter" class="panel hidden">
+    <div class="card">
+      <div class="card-title">Center &amp; Crop</div>
+      <div class="ai-strip">
+        <div class="ai-dot" id="centerDot"></div>
+        <span id="centerMsg">Finds the product, then centers and crops it — loads when you open this tab</span>
+      </div>
+      <p class="hint" style="margin:0 0 14px;">Same centering as the Konimbo procedure: the product is found, then cropped into a 2048 × 2048 square so it fills the frame. The original background stays.</p>
+      <div class="fields">
+        <div class="field">
+          <label for="centerMargin">Border Around Product</label>
+          <input type="range" id="centerMargin" class="range" min="0" max="15" step="1" value="5" oninput="onCenterMargin()">
+          <div class="hint ok" id="centerMarginHint"></div>
+        </div>
+        <div class="field">
+          <label>Output Format</label>
+          <select id="fmtCenter" class="full">
+            <option value="jpeg" selected>JPEG</option>
+            <option value="webp">WebP</option>
+            <option value="png">PNG (lossless)</option>
+          </select>
+        </div>
+      </div>
+      <button class="btn-main" id="btnCenter" onclick="doCenter()" disabled>🎯 Center &amp; Crop</button>
+    </div>
+    <div class="card hidden" id="cardCenterResult">
+      <div class="card-title">Centered &amp; Cropped</div>
+      <div class="batch-list" id="centerBatchList"></div>
+      <div class="hidden" id="centerZipRow" style="margin-top:12px;">
+        <button class="btn-dl" onclick="downloadBatchZip('center')">📦 Download All as ZIP</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ═══════════════════════════════ PROCEDURES ═══════════════════════════════ -->
   <div id="panelProcedures" class="panel hidden">
     <div class="proc-layout">
@@ -804,8 +840,8 @@
 // ═══════════════════════════════════════════════════════════════
 // VERSION — APP_BUILD is stamped by deploy.ps1 on every publish
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '2.2';
-const APP_BUILD = '2026-10-15 00:03';
+const APP_VERSION = '2.3';
+const APP_BUILD = '2026-10-19 10:43';
 const CHANNEL = (() => {
   const local = APP_BUILD.includes('BUILD');
   const host = location.hostname;
@@ -858,16 +894,17 @@ let lastResultUrl = null;
 let lastBGUrls = [];
 let job = null;           // AbortController of the running tool
 const folder = { on: false, input: null, output: null };   // folder mode: directory handles
-const batches = { convert: [], compress: [], upscale: [], removebg: [] };   // [{blob, name, url}]; procedures add their own
+const batches = { convert: [], compress: [], upscale: [], removebg: [], center: [] };   // [{blob, name, url}]; procedures add their own
 const ZIP_NAMES = {
   convert: 'converted_images.zip', compress: 'compressed_images.zip',
   upscale: 'upscaled_images.zip',  removebg: 'no_bg_images.zip',
+  center: 'centered_images.zip',
 };
 
 // ═══════════════════════════════════════════════════════════════
 // TABS
 // ═══════════════════════════════════════════════════════════════
-const TAB_PANEL = { convert:'Convert', compress:'Compress', upscale:'Upscale', removebg:'RemoveBG', procedures:'Procedures', barcode:'Barcode', admin:'Admin' };
+const TAB_PANEL = { convert:'Convert', compress:'Compress', upscale:'Upscale', removebg:'RemoveBG', center:'Center', procedures:'Procedures', barcode:'Barcode', admin:'Admin' };
 
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -883,6 +920,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     refreshButtons();
     if (activeTab === 'upscale') ensureUpscaler().catch(() => {});
     if (activeTab === 'removebg') ensureBGEngine(document.getElementById('bgModel').value).catch(() => {});
+    if (activeTab === 'center') warmCenter();
     if (activeTab === 'procedures') openProcedure(activeProc);
   });
 });
@@ -998,7 +1036,7 @@ window.clearFiles = () => {
   refreshButtons();
   hide('cardResult'); hide('cardProcessing');
   hide('cardConvertResult'); hide('cardCompressResult'); hide('cardUpscaleResult');
-  hide('cardBGResult'); hide('cardBGBatchResult');
+  hide('cardBGResult'); hide('cardBGBatchResult'); hide('cardCenterResult');
   document.querySelectorAll('.proc-result').forEach(c => c.classList.add('hidden'));
 };
 
@@ -1009,6 +1047,7 @@ function refreshButtons() {
   setDis('btnCompress', !has);
   setDis('btnUpscale',  !has);
   setDis('btnRemoveBG', !has);
+  setDis('btnCenter',   !has);
   document.querySelectorAll('.btn-proc').forEach(b => { b.disabled = !has; });
 }
 
@@ -2426,7 +2465,7 @@ function productBox(mask, mw, mh, full, W, H) {
  * upscales the photo crop with Real-ESRGAN when it is smaller than 2048, and composites it on
  * pure white through the separately scaled mask so edges stay clean and the background is #FFFFFF.
  */
-async function productSquare(img, maskC, box, margin, upscale, onTile, signal) {
+async function productSquare(img, maskC, box, margin, upscale, onTile, signal, { punchBackground = true } = {}) {
   const side = Math.max(1, Math.ceil(Math.max(box.w, box.h) / (1 - 2 * margin)));
   const sqX = box.x + box.w / 2 - side / 2;
   const sqY = box.y + box.h / 2 - side / 2;
@@ -2438,12 +2477,15 @@ async function productSquare(img, maskC, box, margin, upscale, onTile, signal) {
   cctx.fillRect(0, 0, side, side);
   cctx.drawImage(img, -sqX, -sqY);
 
-  const mcrop = document.createElement('canvas');
-  mcrop.width = mcrop.height = side;
-  const mctx = mcrop.getContext('2d');
-  mctx.fillStyle = '#000000';
-  mctx.fillRect(0, 0, side, side);
-  mctx.drawImage(maskC, -sqX, -sqY);
+  let mcrop = null;
+  if (punchBackground) {
+    mcrop = document.createElement('canvas');
+    mcrop.width = mcrop.height = side;
+    const mctx = mcrop.getContext('2d');
+    mctx.fillStyle = '#000000';
+    mctx.fillRect(0, 0, side, side);
+    mctx.drawImage(maskC, -sqX, -sqY);
+  }
 
   let rgb;
   if (side < SQUARE_SIZE && upscale) {
@@ -2458,6 +2500,7 @@ async function productSquare(img, maskC, box, margin, upscale, onTile, signal) {
     rgb = finishCanvas(crop, SQUARE_SIZE, SQUARE_SIZE);
   }
   if (rgb !== crop) crop.width = crop.height = 0;
+  if (!punchBackground) return { canvas: rgb, side };
 
   const m = finishCanvas(mcrop, SQUARE_SIZE, SQUARE_SIZE);
   const md = m.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, SQUARE_SIZE, SQUARE_SIZE).data;
@@ -2593,6 +2636,112 @@ async function runSquareProcedure(k, signal) {
 }
 
 renderProcedures();
+
+// ═══════════════════════════════════════════════════════════════
+// CENTER & CROP — Konimbo's centering step on its own: find the product, crop a
+// 2048² square so it fills the frame, keep the original background.
+// ═══════════════════════════════════════════════════════════════
+function centerMargin() { return parseInt(document.getElementById('centerMargin').value, 10) / 100; }
+
+function onCenterMargin() {
+  const pct = Math.round(centerMargin() * 100);
+  document.getElementById('centerMarginHint').textContent =
+    `${pct}% border per side — the product fills ~${100 - 2 * pct}% of the 2048 × 2048 frame`;
+  try { localStorage.setItem('centerPrefs.v1', JSON.stringify({ margin: pct })); } catch {}
+}
+window.onCenterMargin = onCenterMargin;
+try {
+  const saved = JSON.parse(localStorage.getItem('centerPrefs.v1') || 'null');
+  if (Number.isFinite(saved?.margin)) document.getElementById('centerMargin').value = Math.min(15, Math.max(0, saved.margin));
+} catch {}
+onCenterMargin();
+
+function warmCenter() {
+  setAiStrip('centerDot', 'centerMsg', 'loading', 'Loading AI models — BiRefNet finds the product, Real-ESRGAN upscales small crops (one-time download)…');
+  Promise.all([ensureBGEngine('quality'), ensureUpscaler()])
+    .then(([, up]) => {
+      const gpu = bgDevices.quality === 'webgpu' && up.device === 'webgpu';
+      setAiStrip('centerDot', 'centerMsg', gpu ? 'ready' : 'warn', `Ready — ${deviceLabel(gpu ? 'webgpu' : 'wasm')}`);
+    })
+    .catch(() => setAiStrip('centerDot', 'centerMsg', 'err', 'An AI model failed to load — check your connection and try again'));
+}
+
+/** One photo: product box, square crop, original background kept. */
+async function centerOne(engines, file, img, fmtVal, report, signal) {
+  report(0, 'Finding the product');
+  await tick();
+  const { mask, mw, mh } = await engines.run(file);
+  signal.throwIfAborted();
+  const W = img.naturalWidth, H = img.naturalHeight;
+  const maskC = maskCanvas(mask, mw, mh, W, H);
+  const full = maskC.getContext('2d').getImageData(0, 0, W, H).data;
+  const found = productBox(mask, mw, mh, full, W, H);
+  const box = found || { x: 0, y: 0, w: W, h: H };
+  maskC.width = maskC.height = 0;
+
+  report(0.25, 'Centering and cropping');
+  await tick();
+  const { canvas, side } = await productSquare(img, null, box, centerMargin(), engines.upscale,
+    (d, t) => report(0.25 + 0.65 * d / t, `Upscaling — tile ${d}/${t}`), signal, { punchBackground: false });
+
+  report(0.92, 'Saving');
+  const quality = fmtVal === 'png' ? 1 : 0.92;
+  const blob = await encodeCanvas(canvas, fmtVal, quality);
+  canvas.width = canvas.height = 0;
+
+  const notes = [];
+  if (!found) notes.push('no product detected, whole photo used');
+  if (side < SQUARE_SIZE / 4) notes.push('low-resolution source');
+  return {
+    blob, notes,
+    info: `${W}×${H} → ${SQUARE_SIZE}×${SQUARE_SIZE} · ${fmt(blob.size)} · ${fmtVal.toUpperCase()}${notes.length ? ` · ⚠ ${notes.join(', ')}` : ''}`,
+  };
+}
+
+window.doCenter = runJob(async signal => {
+  if (folder.on) return folderCenter(signal);
+  if (!files.length) return;
+  const fmtVal = document.getElementById('fmtCenter').value;
+
+  resetBatch('center');
+  hide('cardResult'); hide('cardCenterResult');
+  beginJob('Center & Crop');
+  const engines = await loadSquareEngines(signal);
+  if (!engines) { hide('cardProcessing'); return; }
+
+  const n = files.length;
+  const rows = [];
+  let single = null, stopped = 0;
+  for (let i = 0; i < n; i++) {
+    if (signal.aborted) { stopped = n - i; break; }
+    const { file, img, url: thumbUrl } = files[i];
+    const outName = `${baseName(file)}_centered.${extOf(fmtVal)}`;
+    const who = n > 1 ? `${i + 1}/${n} ${file.name}` : file.name;
+    const at = f => ((i + f) / n) * 98 + 1;
+    markThumb(i, 'processing');
+    try {
+      const { blob, info, notes } = await centerOne(engines, file, img, fmtVal, (f, step) => progress(at(f), `${step}: ${who}…`), signal);
+      markThumb(i, 'done');
+      if (n === 1) { single = { blob, file, img, outName, notes }; break; }
+      const { url, name } = addToBatch('center', blob, outName);
+      rows.push(batchRow(thumbUrl, name, info, url));
+    } catch (err) {
+      if (isAbort(err)) { markThumb(i, null); stopped = n - i; break; }
+      console.error('Center & Crop failed:', err);
+      markThumb(i, 'failed');
+      rows.push(batchRow(thumbUrl, outName, `Failed: ${esc(err.message || 'unknown error')}`, null));
+    }
+  }
+
+  progress(100, 'Done!');
+  if (single) { showProcessResult(single.blob, fmtVal, single.file, single.img, single.outName, single.notes.join(', ')); return; }
+  if (n === 1) {
+    hide('cardProcessing');
+    if (!stopped) alert('Center & Crop failed. Try again.');
+    return;
+  }
+  endBatch('center', 'cardCenterResult', rows, stopped);
+});
 
 // ═══════════════════════════════════════════════════════════════
 // SHARED: Show compress/upscale single-file result
@@ -3193,6 +3342,17 @@ async function folderRemoveBG(signal) {
   }, signal);
 }
 
+async function folderCenter(signal) {
+  const fmtVal = document.getElementById('fmtCenter').value;
+  let engines = null;
+  return runFolder({
+    title: 'Center & Crop',
+    outName: item => `${baseOf(item.name)}_centered.${extOf(fmtVal)}`,
+    prepare: async () => !!(engines = await loadSquareEngines(signal)),
+    work: ({ file, img }, report, signal) => centerOne(engines, file, img, fmtVal, report, signal),
+  }, signal);
+}
+
 async function folderProcedure(k, signal) {
   const proc = PROCEDURES[k];
   let engines = null;
@@ -3223,7 +3383,7 @@ warmCodecs();
 // ═══════════════════════════════════════════════════════════════
 const SB_URL = 'https://fgxtaxdjqgmqrwgvjpwn.supabase.co';         // supabase/project.json "url"
 const SB_KEY = 'sb_publishable_i2Tp40p0Q5ugF9WE9tp90A_sAkBrdVq';   // supabase/project.json "publishableKey"
-const TOOL_TABS = ['convert', 'compress', 'upscale', 'removebg', 'procedures', 'barcode'];
+const TOOL_TABS = ['convert', 'compress', 'upscale', 'removebg', 'center', 'procedures', 'barcode'];
 let sbClient = null;
 let me = null;
 
@@ -3304,7 +3464,7 @@ async function fnError(error) {
 // ADMIN — super-admin user management (server enforces every rule)
 // All user-supplied text goes through textContent, never innerHTML.
 // ═══════════════════════════════════════════════════════════════
-const ALL_TABS = { convert:'Convert', compress:'Compress', upscale:'Upscale', removebg:'Remove BG', procedures:'Procedures', barcode:'Barcode' };
+const ALL_TABS = { convert:'Convert', compress:'Compress', upscale:'Upscale', removebg:'Remove BG', center:'Center & Crop', procedures:'Procedures', barcode:'Barcode' };
 const PW_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';   // same as rules.js
 let adminUsers = [];
 let editing = null;      // profile being edited, or null when adding
