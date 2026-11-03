@@ -399,6 +399,18 @@
     <div class="file-list" id="fileList"></div>
   </div>
 
+  <!-- ═══ OUTPUT NAME (shared by all tools) ═══ -->
+  <div class="card" id="cardNameAddon">
+    <div class="card-title">Save As</div>
+    <div class="fields">
+      <div class="field">
+        <label for="nameAddon">Add to original filename (optional)</label>
+        <input type="text" id="nameAddon" class="full" placeholder="Leave empty to keep the original name" autocomplete="off" spellcheck="false" oninput="onNameAddon()">
+        <div class="hint" id="nameAddonHint">Results keep the original filename. Example: <b>2578.jpeg</b></div>
+      </div>
+    </div>
+  </div>
+
   <!-- ═══════════════════════════════ CONVERT ═══════════════════════════════ -->
   <div id="panelConvert" class="panel">
     <div class="card">
@@ -855,7 +867,7 @@
 // VERSION — APP_BUILD is stamped by deploy.ps1 on every publish
 // ═══════════════════════════════════════════════════════════════
 const APP_VERSION = '2.3';
-const APP_BUILD = '2026-10-19 10:49';
+const APP_BUILD = '2026-11-03 22:04';
 const CHANNEL = (() => {
   const local = APP_BUILD.includes('BUILD');
   const host = location.hostname;
@@ -1578,7 +1590,7 @@ async function convertToPdf(quality, signal) {
       markThumb(i, 'done');
     }
     const blob = doc.output('blob');
-    const outName = files.length === 1 ? `${baseName(files[0].file)}.pdf` : 'converted_images.pdf';
+    const outName = files.length === 1 ? outFileName(files[0].file, 'pdf') : 'converted_images.pdf';
     const { url, name } = addToBatch('convert', blob, outName);
     rows.push(batchRow(files[0].url, name, `${files.length} page(s) · ${fmt(blob.size)}`, url));
   } else {
@@ -1591,7 +1603,7 @@ async function convertToPdf(quality, signal) {
       const doc = newDoc();
       addImageToPdfPage(doc, img, quality);
       const blob = doc.output('blob');
-      const { url, name } = addToBatch('convert', blob, `${baseName(file)}.pdf`);
+      const { url, name } = addToBatch('convert', blob, outFileName(file, 'pdf'));
       markThumb(i, 'done');
       rows.push(batchRow(thumbUrl, name, `${sizeChange(file.size, blob.size)} · PDF`, url));
     }
@@ -1624,7 +1636,7 @@ window.doConvert = runJob(async signal => {
   results.forEach((r, i) => {
     if (r.stopped) return;
     const { file, url: thumbUrl } = files[i];
-    const outName = `${baseName(file)}.${extOf(fmtVal)}`;
+    const outName = outFileName(file, extOf(fmtVal));
     if (r.error) { rows.push(batchRow(thumbUrl, outName, `Failed: ${esc(r.error)}`, null)); return; }
     const { url, name } = addToBatch('convert', r.blob, outName);
     rows.push(batchRow(thumbUrl, name, `${sizeChange(file.size, r.blob.size)} · ${fmtVal.toUpperCase()}`, url));
@@ -1692,7 +1704,7 @@ window.doCompress = runJob(async signal => {
       });
       reportCodecEngine([r.engine]);
       progress(100, 'Done!');
-      showProcessResult(r.blob, fmtVal, file, img, `${baseName(file)}.${ext}`,
+      showProcessResult(r.blob, fmtVal, file, img, outFileName(file, ext),
         r.missed ? 'Could not reach target — smallest result shown' : '');
     } catch (err) {
       hide('cardProcessing');
@@ -1707,7 +1719,7 @@ window.doCompress = runJob(async signal => {
   results.forEach((r, i) => {
     if (r.stopped) return;
     const { file, url: thumbUrl } = files[i];
-    const outName = `${baseName(file)}.${ext}`;
+    const outName = outFileName(file, ext);
     if (r.error) { rows.push(batchRow(thumbUrl, outName, `Failed: ${esc(r.error)}`, null)); return; }
     const { url, name } = addToBatch('compress', r.blob, outName);
     const warn = r.missed ? ' · <span style="color:var(--yellow)">⚠ above target</span>' : '';
@@ -2000,7 +2012,7 @@ window.doUpscale = runJob(async signal => {
     if (signal.aborted) { stopped = n - i; break; }
     const { file, img, url: thumbUrl } = files[i];
     const { w, h, label } = upscaleTarget(img);
-    const outName = `${baseName(file)}_upscaled_${label}.${extOf(fmtVal)}`;
+    const outName = outFileName(file, extOf(fmtVal));
     const prefix = n > 1 ? `Upscaling ${i + 1}/${n}: ${file.name}` : `Upscaling ${file.name}`;
     markThumb(i, 'processing');
     progress((i / n) * 100, `${prefix}…`);
@@ -2313,7 +2325,7 @@ window.doRemoveBG = runJob(async signal => {
     await tick();
     try {
       const { blob, ext } = await removeBGOne(run, file, img, fmtVal, fillColor, signal);
-      const outName = `${baseName(file)}_no_bg.${ext}`;
+      const outName = outFileName(file, ext);
       markThumb(i, 'done');
       if (n === 1) { showBGResult(blob, outName, files[i].url); return; }
       const { url, name } = addToBatch('removebg', blob, outName);
@@ -2322,7 +2334,7 @@ window.doRemoveBG = runJob(async signal => {
       if (isAbort(err)) { markThumb(i, null); stopped = n - i; break; }
       console.error('Background removal failed:', err);
       markThumb(i, 'failed');
-      rows.push(batchRow(thumbUrl, `${baseName(file)}_no_bg`, `Failed: ${esc(err.message || 'unknown error')}`, null));
+      rows.push(batchRow(thumbUrl, outFileName(file, extOf(fmtVal)), `Failed: ${esc(err.message || 'unknown error')}`, null));
     }
   }
 
@@ -2628,7 +2640,7 @@ async function runSquareProcedure(k, signal) {
   for (let i = 0; i < n; i++) {
     if (signal.aborted) { stopped = n - i; break; }
     const { file, img, url: thumbUrl } = files[i];
-    const outName = `${baseName(file)}_${k}.${extOf(proc.fmt)}`;
+    const outName = outFileName(file, extOf(proc.fmt));
     const who = n > 1 ? `${i + 1}/${n} ${file.name}` : file.name;
     const at = f => ((i + f) / n) * 98 + 1;
     markThumb(i, 'processing');
@@ -2729,7 +2741,7 @@ window.doCenter = runJob(async signal => {
   for (let i = 0; i < n; i++) {
     if (signal.aborted) { stopped = n - i; break; }
     const { file, img, url: thumbUrl } = files[i];
-    const outName = `${baseName(file)}_centered.${extOf(fmtVal)}`;
+    const outName = outFileName(file, extOf(fmtVal));
     const who = n > 1 ? `${i + 1}/${n} ${file.name}` : file.name;
     const at = f => ((i + f) / n) * 98 + 1;
     markThumb(i, 'processing');
@@ -2787,7 +2799,7 @@ function showProcessResult(blob, fmtVal, file, img, downloadName, note) {
   else               rDelta.innerHTML = `<span class="badge badge-neutral">No change</span>${warn}`;
 
   const dl = document.getElementById('dlBtn');
-  dl.href = url; dl.download = downloadName || `${baseName(file)}_processed.${extOf(fmtVal)}`;
+  dl.href = url; dl.download = downloadName || outFileName(file, extOf(fmtVal));
   show('cardResult');
 }
 
@@ -2951,6 +2963,36 @@ function fmtMime(f) {
 }
 function extOf(f)      { return f === 'jpeg' ? 'jpg' : f; }
 function baseName(file) { return file.name.replace(/\.[^.]+$/, '') || 'image'; }
+const baseOf = name => String(name).replace(/\.[^.]+$/, '') || 'image';
+
+/** Optional text stuck onto the original base name before the extension (e.g. "center" → 2578center.jpg). */
+function nameAddon() {
+  return (document.getElementById('nameAddon')?.value || '').replace(/[\\/:*?"<>|]/g, '').trim();
+}
+
+/** `source` is a File or a filename string; `ext` is the output extension without a dot. */
+function outFileName(source, ext) {
+  const name = typeof source === 'string' ? source : source.name;
+  const base = baseOf(name);
+  const add = nameAddon();
+  const origExt = name.includes('.') ? name.split('.').pop() : '';
+  // Keep ".jpeg" spelling when the result is still JPEG.
+  let outExt = ext;
+  if ((ext === 'jpg' || ext === 'jpeg') && origExt.toLowerCase() === 'jpeg') outExt = 'jpeg';
+  if (!add && origExt.toLowerCase() === outExt.toLowerCase()) return name;
+  return `${base}${add}.${outExt}`;
+}
+
+function onNameAddon() {
+  const add = nameAddon();
+  const el = document.getElementById('nameAddonHint');
+  if (!el) return;
+  el.innerHTML = add
+    ? `Results keep the original name plus your text. Example: <b>2578${esc(add)}.jpeg</b>`
+    : 'Results keep the original filename. Example: <b>2578.jpeg</b>';
+  try { localStorage.setItem('nameAddon.v1', add); } catch {}
+}
+window.onNameAddon = onNameAddon;
 
 function fmt(bytes) {
   if (bytes >= 1048576) return (bytes/1048576).toFixed(2)+' MB';
@@ -3111,7 +3153,6 @@ async function readFolderImage(item, needImg) {
   catch { URL.revokeObjectURL(url); throw new Error('Could not read this image'); }
 }
 
-const baseOf = name => name.replace(/\.[^.]+$/, '') || 'image';
 const relPath = (path, name) => path ? `${path}/${name}` : name;
 
 function fmtDuration(ms) {
@@ -3240,7 +3281,7 @@ async function folderConvert(signal) {
   const q = fmtVal === 'png' ? 1 : quality;
   return runFolder({
     title: `Converting to ${fmtVal.toUpperCase()}`,
-    outName: item => `${baseOf(item.name)}.${extOf(fmtVal)}`,
+    outName: item => outFileName(item.name, extOf(fmtVal)),
     needImg: false,
     lanes: codecPool.size,
     work: async ({ file }) => {
@@ -3260,7 +3301,7 @@ async function folderPdf(quality, signal) {
   if (!document.getElementById('cvtPdfCombine').checked) {
     return runFolder({
       title: 'Converting to PDF',
-      outName: item => `${baseOf(item.name)}.pdf`,
+      outName: item => outFileName(item.name, 'pdf'),
       work: async ({ file, img }) => {
         const doc = newDoc();
         addImageToPdfPage(doc, img, quality);
@@ -3298,7 +3339,7 @@ async function folderCompress(signal) {
   const strategy = document.getElementById('strategyCompress').value;
   return runFolder({
     title: `Compressing to ~${fmt(tb)} each`,
-    outName: item => `${baseOf(item.name)}.${extOf(fmtVal)}`,
+    outName: item => outFileName(item.name, extOf(fmtVal)),
     needImg: false,
     lanes: codecPool.size,
     work: async ({ file }) => {
@@ -3317,7 +3358,7 @@ async function folderUpscale(signal) {
   let aiReady = true;
   return runFolder({
     title: 'Upscaling',
-    outName: item => `${baseOf(item.name)}_upscaled_${label}.${extOf(fmtVal)}`,
+    outName: item => outFileName(item.name, extOf(fmtVal)),
     prepare: async () => {
       progress(1, 'Loading Real-ESRGAN AI…');
       try { await untilAborted(ensureUpscaler(), signal); }
@@ -3339,7 +3380,7 @@ async function folderRemoveBG(signal) {
   let run;
   return runFolder({
     title: 'Removing Background',
-    outName: item => `${baseOf(item.name)}_no_bg.${fmtVal === 'svg' ? 'svg' : extOf(fmtVal)}`,
+    outName: item => outFileName(item.name, fmtVal === 'svg' ? 'svg' : extOf(fmtVal)),
     prepare: async () => {
       progress(1, `Loading ${BG_MODELS[key].label} model…`);
       try { run = await untilAborted(ensureBGEngine(key), signal); return true; }
@@ -3361,7 +3402,7 @@ async function folderCenter(signal) {
   let engines = null;
   return runFolder({
     title: 'Center & Crop',
-    outName: item => `${baseOf(item.name)}_centered.${extOf(fmtVal)}`,
+    outName: item => outFileName(item.name, extOf(fmtVal)),
     prepare: async () => !!(engines = await loadSquareEngines(signal)),
     work: ({ file, img }, report, signal) => centerOne(engines, file, img, fmtVal, report, signal),
   }, signal);
@@ -3372,7 +3413,7 @@ async function folderProcedure(k, signal) {
   let engines = null;
   return runFolder({
     title: proc.name,
-    outName: item => `${baseOf(item.name)}_${k}.${extOf(proc.fmt)}`,
+    outName: item => outFileName(item.name, extOf(proc.fmt)),
     prepare: async () => !!(engines = await loadSquareEngines(signal)),
     work: ({ file, img }, report, signal) => squareOne(k, engines, file, img, report, signal),
   }, signal);
@@ -3388,6 +3429,11 @@ window.addEventListener('beforeunload', e => {
 updateConvertFmtUI();
 localStorage.removeItem('cdKey');
 localStorage.removeItem('repKey');
+try {
+  const savedAddon = localStorage.getItem('nameAddon.v1');
+  if (savedAddon != null) document.getElementById('nameAddon').value = savedAddon;
+} catch {}
+onNameAddon();
 warmCodecs();
 
 // ═══════════════════════════════════════════════════════════════
