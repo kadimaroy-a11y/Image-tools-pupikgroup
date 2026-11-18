@@ -336,7 +336,7 @@
   <button class="tab-btn" data-tab="removebg"><span class="ticon">✂️</span> Remove BG</button>
   <button class="tab-btn" data-tab="center"><span class="ticon">🎯</span> Center &amp; Crop</button>
   <button class="tab-btn" data-tab="procedures"><span class="ticon">⚡</span> Procedures</button>
-  <button class="tab-btn" data-tab="barcode"><span class="ticon">🏷️</span> Barcode</button>
+  <button class="tab-btn" data-tab="barcode"><span class="ticon">🏷️</span> Download by Barcode</button>
   <button class="tab-btn hidden" data-tab="admin"><span class="ticon">👥</span> Admin</button>
 </nav>
 <div class="app-main">
@@ -714,7 +714,7 @@
   <!-- ═══ BARCODE ═══ -->
   <div id="panelBarcode" class="panel hidden">
     <div class="card">
-      <div class="card-title">Barcode Image Downloader</div>
+      <div class="card-title">Download by Barcode</div>
       <div class="bc-grid">
         <label class="bc-field">Barcodes — one per line
           <textarea id="bcInput" rows="7" spellcheck="false" placeholder="889698505634&#10;4005555042822"></textarea>
@@ -867,7 +867,7 @@
 // VERSION — APP_BUILD is stamped by deploy.ps1 on every publish
 // ═══════════════════════════════════════════════════════════════
 const APP_VERSION = '2.3';
-const APP_BUILD = '2026-11-03 22:04';
+const APP_BUILD = '2026-11-18 11:20';
 const CHANNEL = (() => {
   const local = APP_BUILD.includes('BUILD');
   const host = location.hostname;
@@ -1732,7 +1732,10 @@ window.doCompress = runJob(async signal => {
 // SHARED AI HELPERS
 // ═══════════════════════════════════════════════════════════════
 let webgpuCheck = null;
+let webgpuBroken = false;   // set when the GPU dies mid-run (OrtRun / Device was lost)
+
 function hasWebGPU() {
+  if (webgpuBroken) return Promise.resolve(false);
   if (!webgpuCheck) {
     webgpuCheck = (async () => {
       try { return !!(navigator.gpu && await navigator.gpu.requestAdapter()); }
@@ -1742,8 +1745,28 @@ function hasWebGPU() {
   return webgpuCheck;
 }
 
+/** True when ONNX / WebGPU lost the graphics device — common on long batches or after encoding spikes. */
+function isGpuLost(err) {
+  const m = String(err?.message || err || '');
+  return /Device was lost|MapAsync|OrtRun|wgpu::MapAsyncStatus|GPUBuffer|GPUDevice|mapAsync/i.test(m);
+}
+
+/** Stop using WebGPU for the rest of this tab session and drop any GPU-backed AI engines. */
+function markWebGpuBroken(reason) {
+  if (webgpuBroken) return;
+  webgpuBroken = true;
+  webgpuCheck = Promise.resolve(false);
+  console.warn('WebGPU disabled for this session — falling back to CPU:', reason);
+  for (const k of Object.keys(bgEngines)) {
+    if (bgDevices[k] === 'webgpu') { delete bgEngines[k]; delete bgDevices[k]; }
+  }
+  upscalerPromise = null;
+}
+
 function deviceLabel(device) {
-  return device === 'webgpu' ? 'Engine: WebGPU (graphics card)' : 'Engine: CPU (WebAssembly) — slower, no WebGPU available';
+  if (device === 'webgpu') return 'Engine: WebGPU (graphics card)';
+  if (webgpuBroken) return 'Engine: CPU (WebAssembly) — graphics card dropped earlier, using CPU for this session';
+  return 'Engine: CPU (WebAssembly) — slower, no WebGPU available';
 }
 
 function setAiStrip(dotId, msgId, state, msg) {
@@ -1866,7 +1889,7 @@ function updateUpscaleHint() {
 
 /** Tiled 4× super-resolution of an image or canvas; returns a canvas at exactly outW × outH. */
 async function esrganUpscale(img, outW, outH, onTile, signal) {
-  const { ort, session } = await ensureUpscaler();
+  let { ort, session, device } = await ensureUpscaler();
   const S = 4, T = 384, PAD = 16, STEP = T - 2 * PAD;
   const iw = img.naturalWidth ?? img.width, ih = img.naturalHeight ?? img.height;
   const pre = Math.min(1, Math.sqrt(MAX_AI_OUT_PX / (iw * ih * S * S)));
@@ -1888,8 +1911,19 @@ async function esrganUpscale(img, outW, outH, onTile, signal) {
   const cols = Math.ceil(W / STEP), rows = Math.ceil(H / STEP), total = cols * rows;
   const plane = T * T, OT = T * S, oplane = OT * OT;
   const input = new Float32Array(3 * plane);
-  const inName = session.inputNames[0], outName = session.outputNames[0];
+  let inName = session.inputNames[0], outName = session.outputNames[0];
   let done = 0;
+
+  async function runTile(tensor) {
+    try { return await session.run({ [inName]: tensor }); }
+    catch (err) {
+      if (device !== 'webgpu' || !isGpuLost(err)) throw err;
+      markWebGpuBroken(err);
+      ({ ort, session, device } = await ensureUpscaler());
+      inName = session.inputNames[0]; outName = session.outputNames[0];
+      return session.run({ [inName]: tensor });
+    }
+  }
 
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
@@ -1907,7 +1941,7 @@ async function esrganUpscale(img, outW, outH, onTile, signal) {
           input[2 * plane + k] = src[p + 2] / 255;
         }
       }
-      const result = await session.run({ [inName]: new ort.Tensor('float32', input, [1, 3, T, T]) });
+      const result = await runTile(new ort.Tensor('float32', input, [1, 3, T, T]));
       const o = result[outName].data;
       const OW = cw * S, OH = ch * S, off = PAD * S;
       const tile = octx.createImageData(OW, OH);
@@ -2122,7 +2156,23 @@ function ensureBGEngine(key) {
       if (!run) run = await load('wasm');
       bgDevices[key] = device;
       if (document.getElementById('bgModel').value === key) showBGReady(key);
-      return run;
+
+      // If the GPU dies mid-image, reload on CPU and retry that one image once.
+      return async file => {
+        try { return await run(file); }
+        catch (err) {
+          if (device !== 'webgpu' || !isGpuLost(err)) throw err;
+          markWebGpuBroken(err);
+          setAiStrip('bgDot', 'bgMsg', 'loading', `${cfg.label}: graphics card dropped — switching to CPU and retrying…`);
+          progress(Number(document.getElementById('progFill')?.style.width) || 1,
+            'Graphics card dropped — switching to CPU and retrying…');
+          run = await load('wasm');
+          device = 'wasm';
+          bgDevices[key] = 'wasm';
+          showBGReady(key);
+          return await run(file);
+        }
+      };
     })().catch(err => {
       delete bgEngines[key];
       console.warn(`${cfg.label} failed to load:`, err);
@@ -3524,7 +3574,7 @@ async function fnError(error) {
 // ADMIN — super-admin user management (server enforces every rule)
 // All user-supplied text goes through textContent, never innerHTML.
 // ═══════════════════════════════════════════════════════════════
-const ALL_TABS = { convert:'Convert', compress:'Compress', upscale:'Upscale', removebg:'Remove BG', center:'Center & Crop', procedures:'Procedures', barcode:'Barcode' };
+const ALL_TABS = { convert:'Convert', compress:'Compress', upscale:'Upscale', removebg:'Remove BG', center:'Center & Crop', procedures:'Procedures', barcode:'Download by Barcode' };
 const PW_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';   // same as rules.js
 let adminUsers = [];
 let editing = null;      // profile being edited, or null when adding
@@ -3740,7 +3790,7 @@ class BcError extends Error { constructor(status, message) { super(message); thi
 
 async function bcCall(fn, body, binary = false) {
   const session = sbClient && (await sbClient.auth.getSession()).data.session;
-  if (!session) throw new BcError(401, 'Sign in to use Barcode.');
+  if (!session) throw new BcError(401, 'Sign in to use Download by Barcode.');
   let res;
   try {
     res = await fetch(`${SB_URL}/functions/v1/${fn}`, {
