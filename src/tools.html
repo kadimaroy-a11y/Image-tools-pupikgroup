@@ -867,7 +867,7 @@
 // VERSION — APP_BUILD is stamped by deploy.ps1 on every publish
 // ═══════════════════════════════════════════════════════════════
 const APP_VERSION = '2.3';
-const APP_BUILD = '2026-11-18 11:20';
+const APP_BUILD = '2026-11-18 11:51';
 const CHANNEL = (() => {
   const local = APP_BUILD.includes('BUILD');
   const host = location.hostname;
@@ -2419,6 +2419,18 @@ window.resetBG = () => { hide('cardBGResult'); };
 const PROCEDURES = {
   eshop:   { name: 'E-shop Images',  icon: '🛍️', fmt: 'webp', quality: 0.9 },
   konimbo: { name: 'Konimbo Format', icon: '🏷️', fmt: 'jpeg', quality: 0.92 },
+  rmbgCenter: {
+    name: 'Remove BG and Center & Crop',
+    icon: '✂️',
+    fmt: 'webp',
+    quality: 0.9,
+    desc: 'Remove BG first · then center & crop to 2048² · WebP',
+    steps: [
+      'Remove the background from every loaded image and replace it with pure white',
+      'Center and crop the product into a 2048 × 2048 square with a minimal border — upscaled with AI when needed',
+      'Save as WebP',
+    ],
+  },
 };
 const FMT_LABEL = { webp: 'WebP', jpeg: 'JPEG' };
 const SQUARE_SIZE = 2048;
@@ -2431,7 +2443,7 @@ function renderProcedures() {
   document.getElementById('procMenu').innerHTML = entries.map(([k, p]) => `
     <button class="proc-item" data-proc="${k}">
       <span class="pi-name">${p.icon} ${p.name}</span>
-      <span class="pi-desc">White background · centered 2048² · ${FMT_LABEL[p.fmt]}</span>
+      <span class="pi-desc">${p.desc || `White background · centered 2048² · ${FMT_LABEL[p.fmt]}`}</span>
     </button>`).join('');
   document.getElementById('procBody').innerHTML = entries.map(([k, p]) => `
     <div class="proc-pane hidden" id="proc_${k}">
@@ -2442,9 +2454,11 @@ function renderProcedures() {
           <span id="${k}Msg">BiRefNet + Real-ESRGAN AI (free, runs on your device) — loads when you open this procedure</span>
         </div>
         <ol class="proc-steps">
-          <li>Remove the background and replace it with pure white</li>
-          <li>Center the product in a 2048 × 2048 square with a minimal border — upscaled with AI when needed</li>
-          <li>Save as ${FMT_LABEL[p.fmt]}</li>
+          ${(p.steps || [
+            'Remove the background and replace it with pure white',
+            'Center the product in a 2048 × 2048 square with a minimal border — upscaled with AI when needed',
+            `Save as ${FMT_LABEL[p.fmt]}`,
+          ]).map(s => `<li>${s}</li>`).join('')}
         </ol>
         <div class="fields">
           <div class="field">
