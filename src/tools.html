@@ -220,12 +220,24 @@
     .proc-item+.proc-item{margin-top:4px;}
     .proc-item:hover{background:var(--sur2);}
     .proc-item.active{background:rgba(79,126,248,.12);border-color:rgba(79,126,248,.35);}
-    .proc-item .pi-name{font-size:13px;font-weight:700;}
+    .proc-item .pi-name{font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
     .proc-item.active .pi-name{color:var(--accent);}
     .proc-item .pi-desc{font-size:11px;color:var(--text2);line-height:1.35;}
+    .proc-item .pi-badge{font-size:9px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;
+      padding:2px 6px;border-radius:3px;background:var(--sur3);color:var(--text2);}
+    .proc-item .pi-badge.shared{background:rgba(79,126,248,.18);color:var(--accent);}
+    .proc-item-wrap{display:flex;gap:4px;align-items:stretch;}
+    .proc-item-wrap .proc-item{flex:1;min-width:0;}
+    .proc-item-actions{display:flex;flex-direction:column;gap:2px;}
+    .proc-item-actions button{background:var(--sur2);border:1px solid var(--border);color:var(--text2);
+      border-radius:6px;padding:4px 7px;font-size:11px;cursor:pointer;line-height:1.2;}
+    .proc-item-actions button:hover{color:var(--text);border-color:var(--accent);}
+    .proc-menu-actions{margin-top:12px;display:flex;flex-direction:column;gap:6px;}
     .proc-body,.proc-pane{display:flex;flex-direction:column;gap:14px;min-width:0;}
     .proc-steps{margin:0 0 16px 20px;font-size:13px;line-height:1.7;color:var(--text);}
     .proc-steps li::marker{color:var(--accent);font-weight:700;}
+    .proc-editor .field{margin-bottom:12px;}
+    .proc-editor .btn-row{margin-top:8px;gap:8px;}
     input.range{width:100%;accent-color:var(--accent);cursor:pointer;}
 
     @media(max-width:700px){
@@ -406,7 +418,7 @@
       <div class="field">
         <label for="nameAddon">Add to original filename (optional)</label>
         <input type="text" id="nameAddon" class="full" placeholder="Leave empty to keep the original name" autocomplete="off" spellcheck="false" oninput="onNameAddon()">
-        <div class="hint" id="nameAddonHint">Results keep the original filename. Example: <b>2578.jpeg</b></div>
+        <div class="hint" id="nameAddonHint">Results keep the original filename. Example: <b>2578.jpg</b></div>
       </div>
     </div>
   </div>
@@ -423,7 +435,8 @@
         <div class="field">
           <label>Convert To</label>
           <select id="cvtFmt" class="full" onchange="updateConvertFmtUI()">
-            <option value="jpeg">JPEG (.jpg) — best for photos (transparent areas → white)</option>
+            <option value="jpg">JPEG (.jpg) — best for photos (transparent areas → white)</option>
+            <option value="jpeg">JPEG (.jpeg) — same encoding, .jpeg spelling</option>
             <option value="png">PNG (.png) — lossless, supports transparency (OxiPNG optimized)</option>
             <option value="webp">WebP (.webp) — modern, small &amp; efficient</option>
             <option value="avif">AVIF (.avif) — smallest files, slower to encode</option>
@@ -483,7 +496,8 @@
         <div class="field">
           <label>Output Format</label>
           <select id="fmtCompress" class="full">
-            <option value="jpeg">JPEG — best compatibility</option>
+            <option value="jpg">JPEG (.jpg) — best compatibility</option>
+            <option value="jpeg">JPEG (.jpeg) — same encoding, .jpeg spelling</option>
             <option value="webp">WebP — modern &amp; efficient</option>
             <option value="avif">AVIF — smallest files (slower)</option>
             <option value="png">PNG — lossless optimize first, then resize if needed</option>
@@ -536,7 +550,8 @@
         <div class="field">
           <label>Output Format</label>
           <select id="fmtUpscale" class="full">
-            <option value="jpeg">JPEG</option>
+            <option value="jpg">JPEG (.jpg)</option>
+            <option value="jpeg">JPEG (.jpeg)</option>
             <option value="webp">WebP</option>
             <option value="png">PNG (lossless)</option>
           </select>
@@ -582,7 +597,8 @@
         <div class="field">
           <label>Download Format</label>
           <select id="bgFmt" class="full" onchange="syncBGOptions()">
-            <option value="jpeg" selected>JPEG (.jpg) — e-commerce standard, solid background only</option>
+            <option value="jpg" selected>JPEG (.jpg) — e-commerce standard, solid background only</option>
+            <option value="jpeg">JPEG (.jpeg) — same encoding, .jpeg spelling</option>
             <option value="png">PNG — keeps transparency</option>
             <option value="webp">WebP — small files, keeps transparency</option>
             <option value="svg">SVG with embedded image</option>
@@ -639,7 +655,8 @@
         <div class="field">
           <label>Output Format</label>
           <select id="fmtCenter" class="full">
-            <option value="jpeg" selected>JPEG</option>
+            <option value="jpg" selected>JPEG (.jpg)</option>
+            <option value="jpeg">JPEG (.jpeg)</option>
             <option value="webp">WebP</option>
             <option value="png">PNG (lossless)</option>
           </select>
@@ -662,9 +679,64 @@
       <nav class="card proc-menu" aria-label="Procedures">
         <div class="card-title">Procedures</div>
         <div id="procMenu"></div>
+        <div class="proc-menu-actions">
+          <button type="button" class="btn-sec" id="btnNewProc" onclick="startNewProcedure()">+ New procedure</button>
+        </div>
       </nav>
       <!-- One pane per entry in PROCEDURES (rendered by renderProcedures) -->
       <div class="proc-body" id="procBody"></div>
+      <div class="proc-body hidden" id="procEditorWrap">
+        <div class="card proc-editor">
+          <div class="card-title" id="procEditorTitle">New procedure</div>
+          <div class="fields">
+            <div class="field">
+              <label for="peName">Name</label>
+              <input type="text" id="peName" class="full" maxlength="80" placeholder="e.g. Catalog WebP">
+            </div>
+            <div class="field">
+              <label for="peIcon">Icon</label>
+              <input type="text" id="peIcon" class="full" maxlength="8" value="⚡" style="width:5em;">
+            </div>
+            <div class="field">
+              <label for="peFmt">Output format</label>
+              <select id="peFmt" class="full" onchange="onProcEditorFmt()">
+                <option value="webp">WebP</option>
+                <option value="jpeg">JPEG</option>
+                <option value="png">PNG</option>
+              </select>
+            </div>
+            <div class="field hidden" id="peJpegExtWrap">
+              <label for="peJpegExt">JPEG filename spelling</label>
+              <select id="peJpegExt" class="full">
+                <option value="jpg">.jpg</option>
+                <option value="jpeg">.jpeg</option>
+              </select>
+            </div>
+            <div class="field" id="peQualityWrap">
+              <label for="peQuality">Quality</label>
+              <input type="range" id="peQuality" class="range" min="50" max="100" step="1" value="90" oninput="onProcEditorQuality()">
+              <div class="hint ok" id="peQualityHint">90%</div>
+            </div>
+            <div class="field">
+              <label for="peMargin">Default border around product</label>
+              <input type="range" id="peMargin" class="range" min="0" max="15" step="1" value="5" oninput="onProcEditorMargin()">
+              <div class="hint ok" id="peMarginHint"></div>
+            </div>
+            <div class="field hidden" id="peShareWrap">
+              <label class="chk-row">
+                <input type="checkbox" id="peShare">
+                <span>Share with everyone (super-admin)</span>
+              </label>
+              <div class="hint">Shared procedures appear for every user who has the Procedures tab.</div>
+            </div>
+          </div>
+          <div class="btn-row">
+            <button type="button" class="btn-main" id="btnSaveProc" onclick="saveProcedureEditor()">Save</button>
+            <button type="button" class="btn-sec" onclick="cancelProcedureEditor()">Cancel</button>
+          </div>
+          <div class="hint" id="peErr" style="color:var(--red);margin-top:10px;"></div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -867,7 +939,7 @@
 // VERSION — APP_BUILD is stamped by deploy.ps1 on every publish
 // ═══════════════════════════════════════════════════════════════
 const APP_VERSION = '2.3';
-const APP_BUILD = '2026-11-18 11:51';
+const APP_BUILD = '2026-11-23 10:48';
 const CHANNEL = (() => {
   const local = APP_BUILD.includes('BUILD');
   const host = location.hostname;
@@ -1475,6 +1547,8 @@ function pumpCodec() {
 }
 
 function runCodec(op, args, { onStep, onStart } = {}) {
+  // Codec workers only know "jpeg"; .jpg is the same encoding with a different filename spelling.
+  if (args && args.fmt === 'jpg') args = { ...args, fmt: 'jpeg' };
   return new Promise((resolve, reject) => {
     codecPool.queue.push({ op, args, onStep, onStart, resolve, reject });
     pumpCodec();
@@ -2014,7 +2088,7 @@ function finishCanvas(src, w, h, fill) {
 
 async function upscaleOne(img, w, h, fmtVal, aiReady, onTile, signal) {
   const big = aiReady ? await esrganUpscale(img, w, h, onTile, signal) : await smartUpscale(img, w, h);
-  const final = finishCanvas(big, w, h, fmtVal === 'jpeg' ? '#ffffff' : null);
+  const final = finishCanvas(big, w, h, isJpegFmt(fmtVal) ? '#ffffff' : null);
   const blob = await canvasToBlob(final, fmtMime(fmtVal), fmtVal === 'png' ? undefined : 0.95);
   if (final !== big) final.width = final.height = 0;
   big.width = big.height = 0;
@@ -2196,7 +2270,7 @@ const BG_PREFS_KEY = 'bgOutputPrefs.v2';
 window.syncBGOptions = () => {
   const fmtSel = document.getElementById('bgFmt');
   const fill = document.getElementById('bgFill');
-  const jpeg = fmtSel.value === 'jpeg';
+  const jpeg = isJpegFmt(fmtSel.value);
   fill.querySelector('option[value="transparent"]').disabled = jpeg;
   if (jpeg && fill.value === 'transparent') fill.value = '#ffffff';
   document.getElementById('bgJpegHint').classList.toggle('hidden', !jpeg);
@@ -2299,7 +2373,7 @@ function applyMask(img, mask, mw, mh) {
 }
 
 async function buildBGOutput(cutout, fmtVal, fillColor) {
-  if (fmtVal === 'jpeg' && fillColor === 'transparent') fillColor = '#ffffff';
+  if (isJpegFmt(fmtVal) && fillColor === 'transparent') fillColor = '#ffffff';
   let canvas = cutout;
   if (fillColor !== 'transparent') {
     canvas = document.createElement('canvas');
@@ -2310,7 +2384,7 @@ async function buildBGOutput(cutout, fmtVal, fillColor) {
     ctx.drawImage(cutout, 0, 0);
   }
   try {
-    if (fmtVal === 'jpeg' || fmtVal === 'webp') return { blob: await encodeCanvas(canvas, fmtVal), ext: extOf(fmtVal) };
+    if (isJpegFmt(fmtVal) || fmtVal === 'webp') return { blob: await encodeCanvas(canvas, codecFmt(fmtVal)), ext: extOf(fmtVal) };
     const png = await canvasToBlob(canvas, 'image/png');
     if (fmtVal !== 'svg') return { blob: png, ext: 'png' };
     const dataUrl = await new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(png); });
@@ -2324,13 +2398,14 @@ async function buildBGOutput(cutout, fmtVal, fillColor) {
 
 /** MozJPEG / WebP via the codec workers, falling back to the browser's own encoder. */
 async function encodeCanvas(canvas, fmtVal, quality = 0.92) {
+  const encFmt = codecFmt(fmtVal);
   try {
     const png = await canvasToBlob(canvas, 'image/png');
-    const { blob } = await runCodec('convert', { file: png, fmt: fmtVal, quality });
+    const { blob } = await runCodec('convert', { file: png, fmt: encFmt, quality });
     return blob;
   } catch (err) {
     if (isAbort(err)) throw err;
-    return canvasToBlob(canvas, `image/${fmtVal}`, quality);
+    return canvasToBlob(canvas, fmtMime(encFmt), quality);
   }
 }
 
@@ -2414,16 +2489,19 @@ window.resetBG = () => { hide('cardBGResult'); };
 
 // ═══════════════════════════════════════════════════════════════
 // PROCEDURES — product photos on pure white, centered in a 2048² square, saved as `fmt`.
-// Each entry gets its own menu item, pane, border setting and results list.
+// Built-ins live in code; personal/shared customs load from Supabase after sign-in.
 // ═══════════════════════════════════════════════════════════════
-const PROCEDURES = {
-  eshop:   { name: 'E-shop Images',  icon: '🛍️', fmt: 'webp', quality: 0.9 },
-  konimbo: { name: 'Konimbo Format', icon: '🏷️', fmt: 'jpeg', quality: 0.92 },
+const BUILTIN_PROCEDURES = {
+  eshop:   { name: 'E-shop Images',  icon: '🛍️', fmt: 'webp', quality: 0.9, jpeg_ext: 'jpg', margin: 5, builtin: true },
+  konimbo: { name: 'Konimbo Format', icon: '🏷️', fmt: 'jpeg', quality: 0.92, jpeg_ext: 'jpg', margin: 5, builtin: true },
   rmbgCenter: {
     name: 'Remove BG and Center & Crop',
     icon: '✂️',
     fmt: 'webp',
     quality: 0.9,
+    jpeg_ext: 'jpg',
+    margin: 5,
+    builtin: true,
     desc: 'Remove BG first · then center & crop to 2048² · WebP',
     steps: [
       'Remove the background from every loaded image and replace it with pure white',
@@ -2432,59 +2510,137 @@ const PROCEDURES = {
     ],
   },
 };
-const FMT_LABEL = { webp: 'WebP', jpeg: 'JPEG' };
+const BUILTIN_PROC_KEYS = new Set(Object.keys(BUILTIN_PROCEDURES));
+let PROCEDURES = { ...BUILTIN_PROCEDURES };
+const FMT_LABEL = { webp: 'WebP', jpeg: 'JPEG', jpg: 'JPEG', png: 'PNG' };
 const SQUARE_SIZE = 2048;
 const SQUARE_AI_MAX_IN = 1024;      // 4× of this already exceeds 2048, so larger crops are pre-shrunk to save time
 const MASK_ON = 64;                 // mask value that counts as "product" when measuring the box
 let activeProc = Object.keys(PROCEDURES)[0];
+let procEditor = null;              // { mode:'new'|'edit', id?, key?, fromKey? }
+
+function procRecipeMeta(p) {
+  const label = FMT_LABEL[p.fmt] || p.fmt.toUpperCase();
+  const ext = procOutExt(p);
+  const desc = p.desc || `White background · centered 2048² · ${label}${isJpegFmt(p.fmt) || p.fmt === 'jpeg' ? ` (.${ext})` : ''}`;
+  const steps = p.steps || [
+    'Remove the background and replace it with pure white',
+    'Center the product in a 2048 × 2048 square with a minimal border — upscaled with AI when needed',
+    `Save as ${label}${p.fmt === 'jpeg' ? ` (.${ext})` : ''}`,
+  ];
+  return { desc, steps, label, ext };
+}
+
+function procOutExt(proc) {
+  if (proc.fmt === 'jpeg' || isJpegFmt(proc.fmt)) return proc.jpeg_ext || 'jpg';
+  return proc.fmt;
+}
+
+function canEditProc(p) {
+  if (!p || p.builtin) return false;
+  if (p.scope === 'shared') return !!me?.is_super_admin;
+  return p.owner_id === me?.id;
+}
+
+function rowToProc(row) {
+  return {
+    id: row.id,
+    owner_id: row.owner_id,
+    scope: row.scope,
+    name: row.name,
+    icon: row.icon || '⚡',
+    fmt: row.fmt,
+    jpeg_ext: row.jpeg_ext || 'jpg',
+    quality: Number(row.quality) || 0.9,
+    margin: Number.isFinite(+row.margin) ? +row.margin : 5,
+    builtin: false,
+  };
+}
+
+function rebuildProcedures(rows) {
+  const next = { ...BUILTIN_PROCEDURES };
+  for (const row of rows || []) {
+    if (!row?.key || BUILTIN_PROC_KEYS.has(row.key)) continue;
+    next[row.key] = rowToProc(row);
+  }
+  PROCEDURES = next;
+  if (!PROCEDURES[activeProc]) activeProc = Object.keys(PROCEDURES)[0];
+  renderProcedures();
+}
+
+async function loadCustomProcedures() {
+  if (!sbClient || !me) { rebuildProcedures([]); return; }
+  const { data, error } = await sbClient.from('procedures').select('*').order('created_at', { ascending: true });
+  if (error) {
+    console.warn('Could not load custom procedures:', error);
+    rebuildProcedures([]);
+    return;
+  }
+  rebuildProcedures(data || []);
+}
 
 function renderProcedures() {
+  cancelProcedureEditor(true);
   const entries = Object.entries(PROCEDURES);
-  document.getElementById('procMenu').innerHTML = entries.map(([k, p]) => `
-    <button class="proc-item" data-proc="${k}">
-      <span class="pi-name">${p.icon} ${p.name}</span>
-      <span class="pi-desc">${p.desc || `White background · centered 2048² · ${FMT_LABEL[p.fmt]}`}</span>
-    </button>`).join('');
-  document.getElementById('procBody').innerHTML = entries.map(([k, p]) => `
+  document.getElementById('procMenu').innerHTML = entries.map(([k, p]) => {
+    const { desc } = procRecipeMeta(p);
+    const badge = p.builtin ? '' : `<span class="pi-badge ${p.scope === 'shared' ? 'shared' : ''}">${p.scope === 'shared' ? 'Shared' : 'Personal'}</span>`;
+    const editBtns = canEditProc(p)
+      ? `<button type="button" title="Edit" onclick="event.stopPropagation();editProcedure('${k}')">✎</button>
+         <button type="button" title="Delete" onclick="event.stopPropagation();deleteProcedure('${k}')">✕</button>`
+      : `<button type="button" title="Duplicate" onclick="event.stopPropagation();duplicateProcedure('${k}')">⧉</button>`;
+    return `
+    <div class="proc-item-wrap">
+      <button class="proc-item" data-proc="${k}">
+        <span class="pi-name">${p.icon} ${esc(p.name)}${badge}</span>
+        <span class="pi-desc">${esc(desc)}</span>
+      </button>
+      <div class="proc-item-actions">${editBtns}</div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('procBody').innerHTML = entries.map(([k, p]) => {
+    const { steps } = procRecipeMeta(p);
+    const defMargin = Number.isFinite(p.margin) ? p.margin : 5;
+    return `
     <div class="proc-pane hidden" id="proc_${k}">
       <div class="card">
-        <div class="card-title">${p.name}</div>
+        <div class="card-title">${esc(p.name)}</div>
         <div class="ai-strip">
           <div class="ai-dot" id="${k}Dot"></div>
           <span id="${k}Msg">BiRefNet + Real-ESRGAN AI (free, runs on your device) — loads when you open this procedure</span>
         </div>
         <ol class="proc-steps">
-          ${(p.steps || [
-            'Remove the background and replace it with pure white',
-            'Center the product in a 2048 × 2048 square with a minimal border — upscaled with AI when needed',
-            `Save as ${FMT_LABEL[p.fmt]}`,
-          ]).map(s => `<li>${s}</li>`).join('')}
+          ${steps.map(s => `<li>${esc(s)}</li>`).join('')}
         </ol>
         <div class="fields">
           <div class="field">
             <label for="${k}Margin">Border Around Product</label>
-            <input type="range" id="${k}Margin" class="range" min="0" max="15" step="1" value="5" oninput="onProcMargin('${k}')">
+            <input type="range" id="${k}Margin" class="range" min="0" max="15" step="1" value="${defMargin}" oninput="onProcMargin('${k}')">
             <div class="hint ok" id="${k}MarginHint"></div>
           </div>
         </div>
-        <button class="btn-main btn-proc" onclick="runProcedure('${k}')" disabled>${p.icon} Run ${p.name}</button>
+        <button class="btn-main btn-proc" onclick="runProcedure('${k}')" disabled>${p.icon} Run ${esc(p.name)}</button>
       </div>
       <div class="card hidden proc-result" id="${k}Result">
-        <div class="card-title">${p.name} — Results</div>
+        <div class="card-title">${esc(p.name)} — Results</div>
         <div class="batch-list" id="${k}BatchList"></div>
         <div class="hidden" id="${k}ZipRow" style="margin-top:12px;">
           <button class="btn-dl" onclick="downloadBatchZip('${k}')">📦 Download All as ZIP</button>
         </div>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
+
   document.querySelectorAll('.proc-item').forEach(b => b.addEventListener('click', () => openProcedure(b.dataset.proc)));
 
   for (const k of Object.keys(PROCEDURES)) {
-    batches[k] = [];
+    batches[k] = batches[k] || [];
     ZIP_NAMES[k] = `${k}_images.zip`;
     try {
       const saved = JSON.parse(localStorage.getItem(`${k}Prefs.v1`) || 'null');
       if (Number.isFinite(saved?.margin)) document.getElementById(`${k}Margin`).value = Math.min(15, Math.max(0, saved.margin));
+      else if (Number.isFinite(PROCEDURES[k].margin)) document.getElementById(`${k}Margin`).value = PROCEDURES[k].margin;
     } catch {}
     onProcMargin(k);
   }
@@ -2493,11 +2649,175 @@ function renderProcedures() {
 }
 
 function openProcedure(key, warm = true) {
+  if (!PROCEDURES[key]) return;
+  cancelProcedureEditor(true);
   activeProc = key;
   document.querySelectorAll('.proc-item').forEach(b => b.classList.toggle('active', b.dataset.proc === key));
   for (const k of Object.keys(PROCEDURES)) toggle(`proc_${k}`, k === key);
   if (warm) warmProcedure(key);
 }
+
+function slugifyProcKey(name) {
+  let s = String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  if (!/^[a-z]/.test(s)) s = `p_${s}`;
+  s = (s || 'proc').slice(0, 40);
+  return s;
+}
+
+function uniqueProcKey(base) {
+  const taken = new Set(Object.keys(PROCEDURES));
+  let k = base, n = 2;
+  while (taken.has(k) || BUILTIN_PROC_KEYS.has(k)) k = `${base}_${n++}`.slice(0, 48);
+  return k;
+}
+
+function onProcEditorFmt() {
+  const fmt = document.getElementById('peFmt').value;
+  toggle('peJpegExtWrap', fmt === 'jpeg');
+  toggle('peQualityWrap', fmt !== 'png');
+}
+window.onProcEditorFmt = onProcEditorFmt;
+
+function onProcEditorQuality() {
+  document.getElementById('peQualityHint').textContent = `${document.getElementById('peQuality').value}%`;
+}
+window.onProcEditorQuality = onProcEditorQuality;
+
+function onProcEditorMargin() {
+  const pct = parseInt(document.getElementById('peMargin').value, 10);
+  document.getElementById('peMarginHint').textContent =
+    `${pct}% white border per side — the product fills ~${100 - 2 * pct}% of the 2048 × 2048 frame`;
+}
+window.onProcEditorMargin = onProcEditorMargin;
+
+function showProcedureEditor(title) {
+  document.getElementById('procEditorTitle').textContent = title;
+  document.getElementById('peErr').textContent = '';
+  hide('procBody');
+  show('procEditorWrap');
+  onProcEditorFmt();
+  onProcEditorQuality();
+  onProcEditorMargin();
+  toggle('peShareWrap', !!me?.is_super_admin);
+}
+
+function fillProcedureEditor(p = {}) {
+  document.getElementById('peName').value = p.name || '';
+  document.getElementById('peIcon').value = p.icon || '⚡';
+  document.getElementById('peFmt').value = p.fmt === 'jpg' ? 'jpeg' : (p.fmt || 'webp');
+  document.getElementById('peJpegExt').value = p.jpeg_ext || 'jpg';
+  document.getElementById('peQuality').value = Math.round((p.quality ?? 0.9) * 100);
+  document.getElementById('peMargin').value = Number.isFinite(p.margin) ? p.margin : 5;
+  document.getElementById('peShare').checked = p.scope === 'shared';
+}
+
+function startNewProcedure() {
+  if (!me || !sbClient) {
+    alert('Sign in on the live site to create procedures.');
+    return;
+  }
+  procEditor = { mode: 'new' };
+  fillProcedureEditor({ fmt: 'webp', jpeg_ext: 'jpg', quality: 0.9, margin: 5 });
+  showProcedureEditor('New procedure');
+}
+window.startNewProcedure = startNewProcedure;
+
+function editProcedure(key) {
+  const p = PROCEDURES[key];
+  if (!canEditProc(p)) return;
+  procEditor = { mode: 'edit', id: p.id, key };
+  fillProcedureEditor(p);
+  showProcedureEditor(`Edit ${p.name}`);
+}
+window.editProcedure = editProcedure;
+
+function duplicateProcedure(key) {
+  const p = PROCEDURES[key];
+  if (!p) return;
+  if (!me || !sbClient) { alert('Sign in on the live site to duplicate procedures.'); return; }
+  procEditor = { mode: 'new', fromKey: key };
+  fillProcedureEditor({
+    ...p,
+    name: `${p.name} copy`,
+    scope: 'personal',
+  });
+  showProcedureEditor(`Duplicate ${p.name}`);
+}
+window.duplicateProcedure = duplicateProcedure;
+
+function cancelProcedureEditor(silent) {
+  if (!procEditor && document.getElementById('procEditorWrap')?.classList.contains('hidden')) return;
+  procEditor = null;
+  hide('procEditorWrap');
+  show('procBody');
+  if (!silent && activeProc) openProcedure(activeProc, false);
+}
+window.cancelProcedureEditor = cancelProcedureEditor;
+
+async function saveProcedureEditor() {
+  if (!procEditor) return;
+  const errEl = document.getElementById('peErr');
+  errEl.textContent = '';
+  if (!sbClient || !me) { errEl.textContent = 'Sign in to save procedures.'; return; }
+
+  const name = document.getElementById('peName').value.trim();
+  const icon = (document.getElementById('peIcon').value.trim() || '⚡').slice(0, 8);
+  const fmt = document.getElementById('peFmt').value;
+  const jpeg_ext = document.getElementById('peJpegExt').value === 'jpeg' ? 'jpeg' : 'jpg';
+  const quality = Math.min(1, Math.max(0.5, parseInt(document.getElementById('peQuality').value, 10) / 100));
+  const margin = Math.min(15, Math.max(0, parseInt(document.getElementById('peMargin').value, 10) || 0));
+  const wantShared = !!me.is_super_admin && document.getElementById('peShare').checked;
+  const scope = wantShared ? 'shared' : 'personal';
+
+  if (!name) { errEl.textContent = 'Enter a name.'; return; }
+
+  const btn = document.getElementById('btnSaveProc');
+  btn.disabled = true;
+  try {
+    if (procEditor.mode === 'edit' && procEditor.id) {
+      const patch = { name, icon, fmt, jpeg_ext, quality, margin, scope, updated_at: new Date().toISOString() };
+      // Shared rows may keep the original owner; personal rows stay owned by me.
+      if (scope === 'personal') patch.owner_id = me.id;
+      const { error } = await sbClient.from('procedures').update(patch).eq('id', procEditor.id);
+      if (error) throw error;
+      activeProc = procEditor.key;
+    } else {
+      const key = uniqueProcKey(slugifyProcKey(name));
+      const row = {
+        owner_id: me.id,
+        scope,
+        key,
+        name,
+        icon,
+        fmt,
+        jpeg_ext,
+        quality,
+        margin,
+      };
+      const { error } = await sbClient.from('procedures').insert(row);
+      if (error) throw error;
+      activeProc = key;
+    }
+    await loadCustomProcedures();
+  } catch (e) {
+    console.error(e);
+    errEl.textContent = e.message || 'Could not save procedure.';
+  } finally {
+    btn.disabled = false;
+  }
+}
+window.saveProcedureEditor = saveProcedureEditor;
+
+async function deleteProcedure(key) {
+  const p = PROCEDURES[key];
+  if (!canEditProc(p) || !p.id) return;
+  if (!confirm(`Delete “${p.name}”? This cannot be undone.`)) return;
+  const { error } = await sbClient.from('procedures').delete().eq('id', p.id);
+  if (error) { alert(error.message || 'Could not delete.'); return; }
+  if (activeProc === key) activeProc = Object.keys(BUILTIN_PROCEDURES)[0];
+  await loadCustomProcedures();
+}
+window.deleteProcedure = deleteProcedure;
 
 /**
  * Tight box around the product in photo pixels, or null if the mask is empty.
@@ -2657,7 +2977,8 @@ async function loadSquareEngines(signal) {
 /** One photo through a procedure; `report(fraction, step)` describes progress within this photo. */
 async function squareOne(k, engines, file, img, report, signal) {
   const proc = PROCEDURES[k];
-  const label = FMT_LABEL[proc.fmt];
+  const { label } = procRecipeMeta(proc);
+  const outExt = procOutExt(proc);
   report(0, 'Step 1/3 — Removing background');
   await tick();
   const { mask, mw, mh } = await engines.run(file);
@@ -2675,7 +2996,8 @@ async function squareOne(k, engines, file, img, report, signal) {
   maskC.width = maskC.height = 0;
 
   report(0.92, `Step 3/3 — Saving ${label}`);
-  const blob = await encodeCanvas(canvas, proc.fmt, proc.quality);
+  const q = proc.fmt === 'png' ? 1 : (proc.quality ?? 0.9);
+  const blob = await encodeCanvas(canvas, codecFmt(proc.fmt), q);
   canvas.width = canvas.height = 0;
 
   const notes = [];
@@ -2683,6 +3005,7 @@ async function squareOne(k, engines, file, img, report, signal) {
   if (side < SQUARE_SIZE / 4) notes.push('low-resolution source');
   return {
     blob,
+    outExt,
     info: `${W}×${H} → ${SQUARE_SIZE}×${SQUARE_SIZE} · ${fmt(blob.size)} · ${label.toUpperCase()}${notes.length ? ` · ⚠ ${notes.join(', ')}` : ''}`,
   };
 }
@@ -2704,12 +3027,12 @@ async function runSquareProcedure(k, signal) {
   for (let i = 0; i < n; i++) {
     if (signal.aborted) { stopped = n - i; break; }
     const { file, img, url: thumbUrl } = files[i];
-    const outName = outFileName(file, extOf(proc.fmt));
     const who = n > 1 ? `${i + 1}/${n} ${file.name}` : file.name;
     const at = f => ((i + f) / n) * 98 + 1;
     markThumb(i, 'processing');
     try {
-      const { blob, info } = await squareOne(k, engines, file, img, (f, step) => progress(at(f), `${step}: ${who}…`), signal);
+      const { blob, info, outExt } = await squareOne(k, engines, file, img, (f, step) => progress(at(f), `${step}: ${who}…`), signal);
+      const outName = outFileName(file, outExt);
       markThumb(i, 'done');
       const { url, name } = addToBatch(k, blob, outName);
       rows.push(batchRow(thumbUrl, name, info, url));
@@ -2717,7 +3040,7 @@ async function runSquareProcedure(k, signal) {
       if (isAbort(err)) { markThumb(i, null); stopped = n - i; break; }
       console.error(`${proc.name} failed:`, err);
       markThumb(i, 'failed');
-      rows.push(batchRow(thumbUrl, outName, `Failed: ${esc(err.message || 'unknown error')}`, null));
+      rows.push(batchRow(thumbUrl, outFileName(file, procOutExt(proc)), `Failed: ${esc(err.message || 'unknown error')}`, null));
     }
   }
 
@@ -3022,10 +3345,13 @@ function canvasToBlob(canvas, mime, quality) {
   return new Promise((res, rej) => canvas.toBlob(b => b ? res(b) : rej(new Error('Image is too large to encode')), mime, quality));
 }
 
+function isJpegFmt(f) { return f === 'jpg' || f === 'jpeg'; }
+function codecFmt(f) { return isJpegFmt(f) ? 'jpeg' : f; }
 function fmtMime(f) {
+  if (isJpegFmt(f)) return 'image/jpeg';
   return { webp: 'image/webp', png: 'image/png', avif: 'image/avif' }[f] || 'image/jpeg';
 }
-function extOf(f)      { return f === 'jpeg' ? 'jpg' : f; }
+function extOf(f) { return f; }
 function baseName(file) { return file.name.replace(/\.[^.]+$/, '') || 'image'; }
 const baseOf = name => String(name).replace(/\.[^.]+$/, '') || 'image';
 
@@ -3040,9 +3366,7 @@ function outFileName(source, ext) {
   const base = baseOf(name);
   const add = nameAddon();
   const origExt = name.includes('.') ? name.split('.').pop() : '';
-  // Keep ".jpeg" spelling when the result is still JPEG.
-  let outExt = ext;
-  if ((ext === 'jpg' || ext === 'jpeg') && origExt.toLowerCase() === 'jpeg') outExt = 'jpeg';
+  const outExt = ext;
   if (!add && origExt.toLowerCase() === outExt.toLowerCase()) return name;
   return `${base}${add}.${outExt}`;
 }
@@ -3052,8 +3376,8 @@ function onNameAddon() {
   const el = document.getElementById('nameAddonHint');
   if (!el) return;
   el.innerHTML = add
-    ? `Results keep the original name plus your text. Example: <b>2578${esc(add)}.jpeg</b>`
-    : 'Results keep the original filename. Example: <b>2578.jpeg</b>';
+    ? `Results keep the original name plus your text. Example: <b>2578${esc(add)}.jpg</b>`
+    : 'Results keep the original filename. Example: <b>2578.jpg</b>';
   try { localStorage.setItem('nameAddon.v1', add); } catch {}
 }
 window.onNameAddon = onNameAddon;
@@ -3477,7 +3801,7 @@ async function folderProcedure(k, signal) {
   let engines = null;
   return runFolder({
     title: proc.name,
-    outName: item => outFileName(item.name, extOf(proc.fmt)),
+    outName: item => outFileName(item.name, procOutExt(proc)),
     prepare: async () => !!(engines = await loadSquareEngines(signal)),
     work: ({ file, img }, report, signal) => squareOne(k, engines, file, img, report, signal),
   }, signal);
@@ -3545,6 +3869,7 @@ async function initAccount() {
   document.getElementById('whoName').textContent = p.full_name || p.username;
   document.getElementById('whoCompany').textContent = p.company ? `· ${p.company}` : '';
   show('whoBox');
+  await loadCustomProcedures();
   applyTabs(p);
   if (p.is_super_admin) initAdmin();
   sbClient.auth.onAuthStateChange(event => { if (event === 'SIGNED_OUT') backToLogin(); });
